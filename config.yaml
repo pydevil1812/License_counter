@@ -1,0 +1,7 @@
+disk_space:
+  path1: "C:/Users/ironm/Desktop/test"
+  path2: "C:/Users/ironm/Desktop/end"
+
+cycle: 15
+
+db_path: "C:/Users/ironm/Desktop/DEMON/folders.db"
