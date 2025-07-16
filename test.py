@@ -2,6 +2,7 @@ import requests
 import os
 import yaml
 import sys
+import json
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_dir, "config.yaml")
@@ -11,7 +12,7 @@ try:
         config = yaml.safe_load(f)
     api = config.get('api')
     res = requests.get(api)
-    print(res.json())
+    print(json.dumps(res.json(), indent=2, ensure_ascii=False))
 
 except FileNotFoundError:
     print("Ошибка: config.yaml файл не найден.")
