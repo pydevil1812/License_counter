@@ -33,9 +33,22 @@ class SizeByName(Resource):
                 if row:
                     return jsonify({str: row[0]})
                 return jsonify({"error": "Папка не найдена"}), 404
-            
 
 
+class FilenumByName(Resource):
+    def get(self, str):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if str == "total":
+                cursor.execute("SELECT filenum FROM folders")
+                Filenums = [row[0] for row in cursor.fetchall()]
+                return jsonify({"total": sum(Filenums)})
+            else:
+                cursor.execute("SELECT filenum FROM folders WHERE path = ?", (str,))
+                row = cursor.fetchone()
+                if row:
+                    return jsonify({str: row[0]})
+                return jsonify({"error": "Папка не найдена"}), 404
 
 
 if __name__ == "__main__":
@@ -52,7 +65,8 @@ if __name__ == "__main__":
                 CREATE TABLE IF NOT EXISTS folders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     path TEXT NOT NULL,
-                    size INTEGER NOT NULL
+                    size INTEGER NOT NULL,
+                    filenum INTEGER NOT NULL
                 )
             """
             )
@@ -63,9 +77,9 @@ if __name__ == "__main__":
             conn.execute("DELETE FROM folders")
             conn.commit()
 
-    def insert_folder_size(path, size):
+    def insert_folder_size(path, size, filenum):
         with get_db_connection() as conn:
-            conn.execute("INSERT INTO folders (path, size) VALUES (?, ?)", (path, size))
+            conn.execute("INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)", (path, size, filenum))
             conn.commit()
 
     def get_path_size(path):
@@ -75,13 +89,23 @@ if __name__ == "__main__":
             return 0
         return sum(f.stat().st_size for f in path_obj.rglob("*") if f.is_file())
 
+    def filenum_in_folder(path):
+        file_count = 0
+        for root, dirs, files in os.walk(path):
+            for file in files:
+                full_path = os.path.join(root, file)
+                if os.path.isfile(full_path):
+                    file_count += 1
+        return file_count
+
     def update_db_loop():
         while True:
             clear_table()
             for name, path in disk_space.items():
                 size = get_path_size(path)
-                insert_folder_size(name, size)
-                print(f"{name}: {size} байт записано в БД")
+                filenum = filenum_in_folder(path)
+                insert_folder_size(name, size, filenum)
+                print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
             time.sleep(cycle)
             print("перезаписалось")
 
@@ -112,5 +136,7 @@ if __name__ == "__main__":
     api = Api()
     api.add_resource(AllSizes, "/api/size")
     api.add_resource(SizeByName, "/api/size/<str>")
+    api.add_resource(FilenumByName, "/api/filenum/<str>")
+    #api.add_resource(AllFilenums, "/api/filenum")
     api.init_app(app)
     app.run(debug=False, port=port, host=host)  # TODO: в конце поменять на False
