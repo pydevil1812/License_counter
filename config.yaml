@@ -5,3 +5,4 @@ disk_space:
 cycle: 15
 
 db_path: "C:/Users/ironm/Desktop/DEMON/folders.db"
+api: "http://127.0.0.1:3000/api/main"
