@@ -1,3 +1,4 @@
+# Импортируем всё подряд, потому что иначе не работает
 import sys
 import yaml
 import os
@@ -10,6 +11,7 @@ import threading
 from sqlalchemy import create_engine, text
 
 
+# класс, который возвращает всё сразу (моно пользоваться только программистам уровня senior, остальные не настолько ленивые)
 class ALL(Resource):
     def get(self):
         with get_db_connection() as conn:
@@ -37,6 +39,7 @@ class ALL(Resource):
             return {"size": all_folders, "filenum": all_folderz, "db_dashboards_count": results}
 
 
+# возвращает статистику по всем базам, если вдруг надо
 class AllDashboards(Resource):
     def get(self):
         results = {}
@@ -59,6 +62,7 @@ class AllDashboards(Resource):
         return response
 
 
+# Возвращает статистику по одной базе, если вдруг очень надо
 class Dashboard(Resource):
     def get(self, str):
         try:
@@ -81,6 +85,7 @@ class Dashboard(Resource):
             return {"error": f"Ошибка при запросе: {e}"}, 500
 
 
+# Возвращает размеры всех папок, потому что почему бы и нет
 class AllSizes(Resource):
     def get(self):
         with get_db_connection() as conn:
@@ -91,6 +96,7 @@ class AllSizes(Resource):
             return {"folders": all_folders}
 
 
+# Возвращает размер по имени папки или total, если лень указывать имя
 class SizeByName(Resource):
     def get(self, str):
         with get_db_connection() as conn:
@@ -107,6 +113,7 @@ class SizeByName(Resource):
                 return {"error": "Папка не найдена"}, 404
 
 
+# Возвращает количество файлов во всех папках, потому что надо
 class AllFilnums(Resource):
     def get(self):
         with get_db_connection() as conn:
@@ -117,6 +124,7 @@ class AllFilnums(Resource):
             return {"files_in_folders": all_folders}
 
 
+# Возвращает количество файлов по имени папки или total, если лень
 class FilenumByName(Resource):
     def get(self, str):
         with get_db_connection() as conn:
@@ -137,9 +145,11 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.yaml")
 
+    # возвращает соединение с базой, ничего особенного
     def get_db_connection():
         return sqlite3.connect(db_path)
 
+    # Создаёт таблицу, если вдруг её нет
     def create_table():
         with get_db_connection() as conn:
             conn.execute(
@@ -154,11 +164,13 @@ if __name__ == "__main__":
             )
             conn.commit()
 
+    # Чистит таблицу, потому что проще перезаписать всё заново
     def clear_table():
         with get_db_connection() as conn:
             conn.execute("DELETE FROM folders")
             conn.commit()
 
+    # Вставляет размер и количество файлов в базу, потому что надо
     def insert_folder_size(path, size, filenum):
         with get_db_connection() as conn:
             conn.execute(
@@ -167,6 +179,7 @@ if __name__ == "__main__":
             )
             conn.commit()
 
+    # Считает размер и количество файлов в папке, потому что никто другой не будет
     def get_path_size_filenum(path):
         path_obj = Path(path)
         if not path_obj.exists():
@@ -180,6 +193,7 @@ if __name__ == "__main__":
                 filenum += 1
         return size, filenum
 
+    # Тут раньше была функция для подсчёта файлов, но она не нужна
     """def filenum_in_folder(path):
         file_count = 0
         for root, dirs, files in os.walk(path):
@@ -189,6 +203,7 @@ if __name__ == "__main__":
                     file_count += 1
         return file_count"""
 
+    # Бесконечно обновляет базу, потому что Flask не умеет по-другому
     def update_db_loop():
         while True:
             clear_table()
@@ -213,10 +228,11 @@ if __name__ == "__main__":
         db_path = os.path.join(script_dir, dbpath)
         create_table()
 
+        # Поток для обновления базы, потому что Flask иначе ругается
         db_thread = threading.Thread(
             target=update_db_loop, daemon=True
-        )  # создает поток для перезаписи данных в бд (flsk потребовал😡)
-        db_thread.start()  # запускает поток
+        )
+        db_thread.start()
 
     except FileNotFoundError:
         print("Ошибка: config.yaml файл не найден.")
@@ -224,6 +240,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Произошла ошибка: {e}")
         sys.exit(1)
+
+    # запускается Flask, потому что надо же как-то отдавать API
     app = Flask(__name__)
     api = Api()
     api.add_resource(AllSizes, "/api/size")
