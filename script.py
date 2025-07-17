@@ -20,7 +20,43 @@ class ALL(Resource):
             cursor.execute("SELECT path, filenum FROM folders")
             rowz = cursor.fetchall()
             all_folderz = {path: filenum for path, filenum in rowz}
-            return {"size": all_folders, "filenum": all_folderz}
+            results = {}
+            errors = {}
+            for name, db_info in db.items():
+                db_uri = db_info["uri"]
+                db_table = db_info["table"]
+                try:
+                    engine = create_engine(db_uri)
+                    with engine.connect() as conn:
+                        result = conn.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
+                        row = result.fetchone()
+                        count = row[0] if row else 0
+                        results[name] = count
+                except Exception as e:
+                    errors[name] = str(e)
+            return {"size": all_folders, "filenum": all_folderz, "counts": results}
+
+
+class AllDashboards(Resource):
+    def get(self):
+        results = {}
+        errors = {}
+        for name, db_info in db.items():
+            db_uri = db_info["uri"]
+            db_table = db_info["table"]
+            try:
+                engine = create_engine(db_uri)
+                with engine.connect() as conn:
+                    result = conn.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
+                    row = result.fetchone()
+                    count = row[0] if row else 0
+                    results[name] = count
+            except Exception as e:
+                errors[name] = str(e)
+        response = {"counts": results}
+        if errors:
+            response["errors"] = errors
+        return response
 
 
 class Dashboard(Resource):
@@ -195,6 +231,7 @@ if __name__ == "__main__":
     api.add_resource(FilenumByName, "/api/filenum/<str>")
     api.add_resource(AllFilnums, "/api/filenum")
     api.add_resource(Dashboard, "/api/count/<str>")
+    api.add_resource(AllDashboards, "/api/count")
     api.add_resource(ALL, '/api')
     api.init_app(app)
     app.run(debug=False, port=port, host=host)
