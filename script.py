@@ -10,6 +10,19 @@ import threading
 from sqlalchemy import create_engine, text
 
 
+class ALL(Resource):
+    def get(self):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, size FROM folders")
+            rows = cursor.fetchall()
+            all_folders = {path: size for path, size in rows}
+            cursor.execute("SELECT path, filenum FROM folders")
+            rowz = cursor.fetchall()
+            all_folderz = {path: filenum for path, filenum in rowz}
+            return {"size": all_folders, "filenum": all_folderz}
+
+
 class Dashboard(Resource):
     def get(self, str):
         try:
@@ -30,7 +43,6 @@ class Dashboard(Resource):
 
         except Exception as e:
             return {"error": f"Ошибка при запросе: {e}"}, 500
-
 
 
 class AllSizes(Resource):
@@ -66,7 +78,7 @@ class AllFilnums(Resource):
             cursor.execute("SELECT path, filenum FROM folders")
             rows = cursor.fetchall()
             all_folders = {path: filenum for path, filenum in rows}
-            return {"folders": all_folders}
+            return {"files_in_folders": all_folders}
 
 
 class FilenumByName(Resource):
@@ -113,7 +125,10 @@ if __name__ == "__main__":
 
     def insert_folder_size(path, size, filenum):
         with get_db_connection() as conn:
-            conn.execute("INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)", (path, size, filenum))
+            conn.execute(
+                "INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)",
+                (path, size, filenum),
+            )
             conn.commit()
 
     def get_path_size_filenum(path):
@@ -123,27 +138,27 @@ if __name__ == "__main__":
             return 0
         size = 0
         filenum = 0
-        for f in path_obj.rglob('*'):
+        for f in path_obj.rglob("*"):
             if f.is_file():
                 size += f.stat().st_size
                 filenum += 1
         return size, filenum
 
-    '''def filenum_in_folder(path):
+    """def filenum_in_folder(path):
         file_count = 0
         for root, dirs, files in os.walk(path):
             for file in files:
                 full_path = os.path.join(root, file)
                 if os.path.isfile(full_path):
                     file_count += 1
-        return file_count'''
+        return file_count"""
 
     def update_db_loop():
         while True:
             clear_table()
             for name, path in disk_space.items():
                 size, filenum = get_path_size_filenum(path)
-                #filenum = filenum_in_folder(path)
+                # filenum = filenum_in_folder(path)
                 insert_folder_size(name, size, filenum)
                 print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
             time.sleep(cycle)
@@ -180,5 +195,6 @@ if __name__ == "__main__":
     api.add_resource(FilenumByName, "/api/filenum/<str>")
     api.add_resource(AllFilnums, "/api/filenum")
     api.add_resource(Dashboard, "/api/count/<str>")
+    api.add_resource(ALL, '/api')
     api.init_app(app)
     app.run(debug=False, port=port, host=host)
