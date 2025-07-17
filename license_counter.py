@@ -34,7 +34,7 @@ class ALL(Resource):
                         results[name] = count
                 except Exception as e:
                     errors[name] = str(e)
-            return {"size": all_folders, "filenum": all_folderz, "counts": results}
+            return {"size": all_folders, "filenum": all_folderz, "db_dashboards_count": results}
 
 
 class AllDashboards(Resource):
@@ -53,7 +53,7 @@ class AllDashboards(Resource):
                     results[name] = count
             except Exception as e:
                 errors[name] = str(e)
-        response = {"counts": results}
+        response = {"db_dashboards_count": results}
         if errors:
             response["errors"] = errors
         return response
