@@ -9,3 +9,11 @@ host: '0.0.0.0'
 
 db_path: "folders.db"
 api: "http://127.0.0.1:3000/api/main"
+
+db:
+  name1:
+    uri: "sqlite:///folders.db"
+    table: "folders"
+  name2: 
+    uri: "sqlite:///mydatabase.db"
+    table: ""
