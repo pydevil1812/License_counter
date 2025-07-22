@@ -1,6 +1,6 @@
 disk_space:
-  path1: "C:/Users/ironm/Desktop/test"
-  path2: "C:/Users/ironm/Desktop/end"
+  path1: "/home/idan/test"
+  path2: "/home/idan/end"
 
 cycle: 15
 
