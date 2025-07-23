@@ -11,6 +11,7 @@ import threading
 from sqlalchemy import create_engine, text
 
 
+
 # класс, который возвращает всё сразу (моно пользоваться только программистам уровня senior, остальные не настолько ленивые)
 class ALL(Resource):
     def get(self):
@@ -141,9 +142,6 @@ class FilenumByName(Resource):
                 return {"error": "Папка не найдена"}, 404
 
 
-if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "config.yaml")
 
     # возвращает соединение с базой, ничего особенного
     def get_db_connection():
@@ -164,57 +162,61 @@ if __name__ == "__main__":
             )
             conn.commit()
 
-    # Чистит таблицу, потому что проще перезаписать всё заново
-    def clear_table():
-        with get_db_connection() as conn:
-            conn.execute("DELETE FROM folders")
-            conn.commit()
+# Чистит таблицу, потому что проще перезаписать всё заново
+def clear_table():
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM folders")
+        conn.commit()
 
-    # Вставляет размер и количество файлов в базу, потому что надо
-    def insert_folder_size(path, size, filenum):
-        with get_db_connection() as conn:
-            conn.execute(
-                "INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)",
-                (path, size, filenum),
-            )
-            conn.commit()
+# Вставляет размер и количество файлов в базу, потому что надо
+def insert_folder_size(path, size, filenum):
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)",
+            (path, size, filenum),
+        )
+        conn.commit()
 
-    # Считает размер и количество файлов в папке, потому что никто другой не будет
-    def get_path_size_filenum(path):
-        path_obj = Path(path)
-        if not path_obj.exists():
-            print(f"⚠ Путь не найден: {path}")
-            return 0
-        size = 0
-        filenum = 0
-        for f in path_obj.rglob("*"):
-            if f.is_file():
-                size += f.stat().st_size
-                filenum += 1
-        return size, filenum
+# Считает размер и количество файлов в папке, потому что никто другой не будет
+def get_path_size_filenum(path):
+    path_obj = Path(path)
+    if not path_obj.exists():
+        print(f"⚠ Путь не найден: {path}")
+        return 0
+    size = 0
+    filenum = 0
+    for f in path_obj.rglob("*"):
+        if f.is_file():
+            size += f.stat().st_size
+            filenum += 1
+    return size, filenum
 
-    # Тут раньше была функция для подсчёта файлов, но она не нужна
-    """def filenum_in_folder(path):
-        file_count = 0
-        for root, dirs, files in os.walk(path):
-            for file in files:
-                full_path = os.path.join(root, file)
-                if os.path.isfile(full_path):
-                    file_count += 1
-        return file_count"""
+# Тут раньше была функция для подсчёта файлов, но она не нужна
+"""def filenum_in_folder(path):
+    file_count = 0
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            full_path = os.path.join(root, file)
+            if os.path.isfile(full_path):
+                file_count += 1
+    return file_count"""
 
-    # Бесконечно обновляет базу, потому что Flask не умеет по-другому
-    def update_db_loop():
-        while True:
-            clear_table()
-            for name, path in disk_space.items():
-                size, filenum = get_path_size_filenum(path)
-                # filenum = filenum_in_folder(path)
-                insert_folder_size(name, size, filenum)
-                print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
-            time.sleep(cycle)
-            print("перезаписалось")
+# Бесконечно обновляет базу, потому что Flask не умеет по-другому
+def update_db_loop():
+    while True:
+        clear_table()
+        for name, path in disk_space.items():
+            size, filenum = get_path_size_filenum(path)
+            # filenum = filenum_in_folder(path)
+            insert_folder_size(name, size, filenum)
+            print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
+        time.sleep(cycle)
+        print("перезаписалось")
 
+
+if __name__ == "__main__":
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(script_dir, "config.yaml")
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
