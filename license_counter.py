@@ -21,9 +21,9 @@ class ALL(Resource):
             cursor.execute("SELECT path, size FROM folders")
             rows = cursor.fetchall()
             all_folders = {path: size for path, size in rows}
-            cursor.execute("SELECT path, filenum FROM folders")
+            cursor.execute("SELECT path, n_files FROM folders")
             rowz = cursor.fetchall()
-            all_folderz = {path: filenum for path, filenum in rowz}
+            all_folderz = {path: n_files for path, n_files in rowz}
             results = {}
             errors = {}
             for name, db_info in db.items():
@@ -38,7 +38,7 @@ class ALL(Resource):
                         results[name] = count
                 except Exception as e:
                     errors[name] = str(e)
-            return {"size": all_folders, "filenum": all_folderz, "db_dashboards_count": results}
+            return {"size": all_folders, "n_files": all_folderz, "db_dashboards_count": results}
 
 
 # возвращает статистику по всем базам, если вдруг надо
@@ -120,9 +120,9 @@ class AllFilnums(Resource):
     def get(self):
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT path, filenum FROM folders")
+            cursor.execute("SELECT path, n_files FROM folders")
             rows = cursor.fetchall()
-            all_folders = {path: filenum for path, filenum in rows}
+            all_folders = {path: n_files for path, n_files in rows}
             return {"files_in_folders": all_folders}
 
 
@@ -132,11 +132,11 @@ class FilenumByName(Resource):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             if str == "total":
-                cursor.execute("SELECT filenum FROM folders")
+                cursor.execute("SELECT n_files FROM folders")
                 filenums = [row[0] for row in cursor.fetchall()]
                 return {"total": sum(filenums)}
             else:
-                cursor.execute("SELECT filenum FROM folders WHERE path = ?", (str,))
+                cursor.execute("SELECT n_files FROM folders WHERE path = ?", (str,))
                 row = cursor.fetchone()
                 if row:
                     return {str: row[0]}
@@ -157,7 +157,7 @@ def create_table():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 path TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                filenum INTEGER NOT NULL,
+                n_files INTEGER NOT NULL,
                 last_updated TEXT NOT NULL
             )
         """
@@ -171,12 +171,12 @@ def clear_table():
         conn.commit()
 
 # Вставляет размер и количество файлов в базу, потому что надо
-def insert_folder_size(path, size, filenum):
+def insert_folder_size(path, size, n_files):
     now = datetime.now().isoformat()
     with get_db_connection() as conn:
         conn.execute(
-            "INSERT INTO folders (path, size, filenum, last_updated) VALUES (?, ?, ?, ?)",
-            (path, size, filenum, now),
+            "INSERT INTO folders (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
+            (path, size, n_files, now),
         )
         conn.commit()
 
@@ -187,12 +187,12 @@ def get_path_size_filenum(path):
         print(f"⚠ Путь не найден: {path}")
         return 0
     size = 0
-    filenum = 0
+    n_files = 0
     for f in path_obj.rglob("*"):
         if f.is_file():
             size += f.stat().st_size
-            filenum += 1
-    return size, filenum
+            n_files += 1
+    return size, n_files
 
 # Тут раньше была функция для подсчёта файлов, но она не нужна
 """def filenum_in_folder(path):
@@ -209,8 +209,8 @@ def update_db_loop():
     while True:
         clear_table()
         for name, path in disk_space.items():
-            size, filenum = get_path_size_filenum(path)
-            insert_folder_size(name, size, filenum)
+            size, n_files = get_path_size_filenum(path)
+            insert_folder_size(name, size, n_files)
 
             # Получаем last_updated из базы
             with get_db_connection() as conn:
@@ -219,7 +219,7 @@ def update_db_loop():
                 row = cursor.fetchone()
                 last_updated = row[0] if row else "не найдено"
 
-            print(f"{name}: {size} байт, файлов: {filenum}, обновлено: {last_updated}")
+            print(f"{name}: {size} байт, файлов: {n_files}, обновлено: {last_updated}")
 
         time.sleep(cycle)
         print("перезаписалось")
@@ -260,8 +260,8 @@ if __name__ == "__main__":
     api = Api()
     api.add_resource(AllSizes, "/api/size")
     api.add_resource(SizeByName, "/api/size/<str>")
-    api.add_resource(FilenumByName, "/api/filenum/<str>")
-    api.add_resource(AllFilnums, "/api/filenum")
+    api.add_resource(FilenumByName, "/api/n_files/<str>")
+    api.add_resource(AllFilnums, "/api/n_files")
     api.add_resource(Dashboard, "/api/count/<str>")
     api.add_resource(AllDashboards, "/api/count")
     api.add_resource(ALL, '/api')
