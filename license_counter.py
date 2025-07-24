@@ -143,24 +143,24 @@ class FilenumByName(Resource):
 
 
 
-    # возвращает соединение с базой, ничего особенного
-    def get_db_connection():
-        return sqlite3.connect(db_path)
+# возвращает соединение с базой, ничего особенного
+def get_db_connection():
+    return sqlite3.connect(db_path)
 
-    # Создаёт таблицу, если вдруг её нет
-    def create_table():
-        with get_db_connection() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS folders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    path TEXT NOT NULL,
-                    size INTEGER NOT NULL,
-                    filenum INTEGER NOT NULL
-                )
+# Создаёт таблицу, если вдруг её нет
+def create_table():
+    with get_db_connection() as conn:
+        conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                filenum INTEGER NOT NULL
             )
-            conn.commit()
+        """
+        )
+        conn.commit()
 
 # Чистит таблицу, потому что проще перезаписать всё заново
 def clear_table():
