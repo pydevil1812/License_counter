@@ -9,6 +9,7 @@ from flask import Flask
 from flask_restful import Api, Resource
 import threading
 from sqlalchemy import create_engine, text
+from datetime import datetime
 
 
 
@@ -156,7 +157,8 @@ def create_table():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 path TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                filenum INTEGER NOT NULL
+                filenum INTEGER NOT NULL,
+                last_updated TEXT NOT NULL
             )
         """
         )
@@ -170,10 +172,11 @@ def clear_table():
 
 # Вставляет размер и количество файлов в базу, потому что надо
 def insert_folder_size(path, size, filenum):
+    now = datetime.now().isoformat()
     with get_db_connection() as conn:
         conn.execute(
-            "INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)",
-            (path, size, filenum),
+            "INSERT INTO folders (path, size, filenum, last_updated) VALUES (?, ?, ?, ?)",
+            (path, size, filenum, now),
         )
         conn.commit()
 
@@ -207,11 +210,20 @@ def update_db_loop():
         clear_table()
         for name, path in disk_space.items():
             size, filenum = get_path_size_filenum(path)
-            # filenum = filenum_in_folder(path)
             insert_folder_size(name, size, filenum)
-            print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
+
+            # Получаем last_updated из базы
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT last_updated FROM folders WHERE path = ?", (name,))
+                row = cursor.fetchone()
+                last_updated = row[0] if row else "не найдено"
+
+            print(f"{name}: {size} байт, файлов: {filenum}, обновлено: {last_updated}")
+
         time.sleep(cycle)
         print("перезаписалось")
+
 
 
 if __name__ == "__main__":
