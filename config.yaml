@@ -1,6 +1,7 @@
 disk_space:
-  path1: "/home/idan/myenv/test"
-  path2: "/home/idan/myenv/end"
+  path1: "/home/idan/test"
+  path2: "/home/idan/end"
+
 cycle: 15
 
 port: 3000
