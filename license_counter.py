@@ -9,8 +9,6 @@ from flask import Flask
 from flask_restful import Api, Resource
 import threading
 from sqlalchemy import create_engine, text
-from datetime import datetime
-
 
 
 # класс, который возвращает всё сразу (моно пользоваться только программистам уровня senior, остальные не настолько ленивые)
@@ -21,9 +19,9 @@ class ALL(Resource):
             cursor.execute("SELECT path, size FROM folders")
             rows = cursor.fetchall()
             all_folders = {path: size for path, size in rows}
-            cursor.execute("SELECT path, n_files FROM folders")
+            cursor.execute("SELECT path, filenum FROM folders")
             rowz = cursor.fetchall()
-            all_folderz = {path: n_files for path, n_files in rowz}
+            all_folderz = {path: filenum for path, filenum in rowz}
             results = {}
             errors = {}
             for name, db_info in db.items():
@@ -38,7 +36,7 @@ class ALL(Resource):
                         results[name] = count
                 except Exception as e:
                     errors[name] = str(e)
-            return {"size": all_folders, "n_files": all_folderz, "db_dashboards_count": results}
+            return {"size": all_folders, "filenum": all_folderz, "db_dashboards_count": results}
 
 
 # возвращает статистику по всем базам, если вдруг надо
@@ -120,9 +118,9 @@ class AllFilnums(Resource):
     def get(self):
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT path, n_files FROM folders")
+            cursor.execute("SELECT path, filenum FROM folders")
             rows = cursor.fetchall()
-            all_folders = {path: n_files for path, n_files in rows}
+            all_folders = {path: filenum for path, filenum in rows}
             return {"files_in_folders": all_folders}
 
 
@@ -132,103 +130,91 @@ class FilenumByName(Resource):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             if str == "total":
-                cursor.execute("SELECT n_files FROM folders")
+                cursor.execute("SELECT filenum FROM folders")
                 filenums = [row[0] for row in cursor.fetchall()]
                 return {"total": sum(filenums)}
             else:
-                cursor.execute("SELECT n_files FROM folders WHERE path = ?", (str,))
+                cursor.execute("SELECT filenum FROM folders WHERE path = ?", (str,))
                 row = cursor.fetchone()
                 if row:
                     return {str: row[0]}
                 return {"error": "Папка не найдена"}, 404
 
 
-
-# возвращает соединение с базой, ничего особенного
-def get_db_connection():
-    return sqlite3.connect(db_path)
-
-# Создаёт таблицу, если вдруг её нет
-def create_table():
-    with get_db_connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS folders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL,
-                size INTEGER NOT NULL,
-                n_files INTEGER NOT NULL,
-                last_updated TEXT NOT NULL
-            )
-        """
-        )
-        conn.commit()
-
-# Чистит таблицу, потому что проще перезаписать всё заново
-def clear_table():
-    with get_db_connection() as conn:
-        conn.execute("DELETE FROM folders")
-        conn.commit()
-
-# Вставляет размер и количество файлов в базу, потому что надо
-def insert_folder_size(path, size, n_files):
-    now = datetime.now().isoformat()
-    with get_db_connection() as conn:
-        conn.execute(
-            "INSERT INTO folders (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
-            (path, size, n_files, now),
-        )
-        conn.commit()
-
-# Считает размер и количество файлов в папке, потому что никто другой не будет
-def get_path_size_filenum(path):
-    path_obj = Path(path)
-    if not path_obj.exists():
-        print(f"⚠ Путь не найден: {path}")
-        return 0
-    size = 0
-    n_files = 0
-    for f in path_obj.rglob("*"):
-        if f.is_file():
-            size += f.stat().st_size
-            n_files += 1
-    return size, n_files
-
-# Тут раньше была функция для подсчёта файлов, но она не нужна
-"""def filenum_in_folder(path):
-    file_count = 0
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            full_path = os.path.join(root, file)
-            if os.path.isfile(full_path):
-                file_count += 1
-    return file_count"""
-
-# Бесконечно обновляет базу, потому что Flask не умеет по-другому
-def update_db_loop():
-    while True:
-        clear_table()
-        for name, path in disk_space.items():
-            size, n_files = get_path_size_filenum(path)
-            insert_folder_size(name, size, n_files)
-
-            # Получаем last_updated из базы
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT last_updated FROM folders WHERE path = ?", (name,))
-                row = cursor.fetchone()
-                last_updated = row[0] if row else "не найдено"
-
-            print(f"{name}: {size} байт, файлов: {n_files}, обновлено: {last_updated}")
-
-        time.sleep(cycle)
-        print("перезаписалось")
-
-
-
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.yaml")
+
+    # возвращает соединение с базой, ничего особенного
+    def get_db_connection():
+        return sqlite3.connect(db_path)
+
+    # Создаёт таблицу, если вдруг её нет
+    def create_table():
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS folders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    path TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    filenum INTEGER NOT NULL
+                )
+            """
+            )
+            conn.commit()
+
+    # Чистит таблицу, потому что проще перезаписать всё заново
+    def clear_table():
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM folders")
+            conn.commit()
+
+    # Вставляет размер и количество файлов в базу, потому что надо
+    def insert_folder_size(path, size, filenum):
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)",
+                (path, size, filenum),
+            )
+            conn.commit()
+
+    # Считает размер и количество файлов в папке, потому что никто другой не будет
+    def get_path_size_filenum(path):
+        path_obj = Path(path)
+        if not path_obj.exists():
+            print(f"⚠ Путь не найден: {path}")
+            return 0
+        size = 0
+        filenum = 0
+        for f in path_obj.rglob("*"):
+            if f.is_file():
+                size += f.stat().st_size
+                filenum += 1
+        return size, filenum
+
+    # Тут раньше была функция для подсчёта файлов, но она не нужна
+    """def filenum_in_folder(path):
+        file_count = 0
+        for root, dirs, files in os.walk(path):
+            for file in files:
+                full_path = os.path.join(root, file)
+                if os.path.isfile(full_path):
+                    file_count += 1
+        return file_count"""
+
+    # Бесконечно обновляет базу, потому что Flask не умеет по-другому
+    def update_db_loop():
+        while True:
+            clear_table()
+            for name, path in disk_space.items():
+                size, filenum = get_path_size_filenum(path)
+                # filenum = filenum_in_folder(path)
+                insert_folder_size(name, size, filenum)
+                print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
+            time.sleep(cycle)
+            print("перезаписалось")
+
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
@@ -260,8 +246,8 @@ if __name__ == "__main__":
     api = Api()
     api.add_resource(AllSizes, "/api/size")
     api.add_resource(SizeByName, "/api/size/<str>")
-    api.add_resource(FilenumByName, "/api/n_files/<str>")
-    api.add_resource(AllFilnums, "/api/n_files")
+    api.add_resource(FilenumByName, "/api/filenum/<str>")
+    api.add_resource(AllFilnums, "/api/filenum")
     api.add_resource(Dashboard, "/api/count/<str>")
     api.add_resource(AllDashboards, "/api/count")
     api.add_resource(ALL, '/api')
