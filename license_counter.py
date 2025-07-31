@@ -9,6 +9,12 @@ from flask import Flask
 from flask_restful import Api, Resource
 import threading
 from sqlalchemy import create_engine, text
+<<<<<<< HEAD
+=======
+from datetime import datetime
+from contextlib import contextmanager
+
+>>>>>>> 42de696 (update  get_db_connection)
 
 
 # класс, который возвращает всё сразу (моно пользоваться только программистам уровня senior, остальные не настолько ленивые)
@@ -139,6 +145,94 @@ class FilenumByName(Resource):
                 if row:
                     return {str: row[0]}
                 return {"error": "Папка не найдена"}, 404
+
+
+
+# возвращает соединение с базой, ничего особенного
+@contextmanager
+def get_db_connection():
+    conn = sqlite3.connect(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+# Создаёт таблицу, если вдруг её нет
+def create_table():
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                n_files INTEGER NOT NULL,
+                last_updated TEXT NOT NULL
+            )
+        """
+        )
+        conn.commit()
+
+# Чистит таблицу, потому что проще перезаписать всё заново
+def clear_table():
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM folders")
+        conn.commit()
+
+# Вставляет размер и количество файлов в базу, потому что надо
+def insert_folder_size(path, size, n_files):
+    now = datetime.now().isoformat()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO folders (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
+            (path, size, n_files, now),
+        )
+        conn.commit()
+
+# Считает размер и количество файлов в папке, потому что никто другой не будет
+def get_path_size_filenum(path):
+    path_obj = Path(path)
+    if not path_obj.exists():
+        print(f"⚠ Путь не найден: {path}")
+        return 0
+    size = 0
+    n_files = 0
+    for f in path_obj.rglob("*"):
+        if f.is_file():
+            size += f.stat().st_size
+            n_files += 1
+    return size, n_files
+
+# Тут раньше была функция для подсчёта файлов, но она не нужна
+"""def filenum_in_folder(path):
+    file_count = 0
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            full_path = os.path.join(root, file)
+            if os.path.isfile(full_path):
+                file_count += 1
+    return file_count"""
+
+# Бесконечно обновляет базу, потому что Flask не умеет по-другому
+def update_db_loop():
+    while True:
+        clear_table()
+        for name, path in disk_space.items():
+            size, n_files = get_path_size_filenum(path)
+            insert_folder_size(name, size, n_files)
+
+            # Получаем last_updated из базы
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT last_updated FROM folders WHERE path = ?", (name,))
+                row = cursor.fetchone()
+                last_updated = row[0] if row else "не найдено"
+
+            print(f"{name}: {size} байт, файлов: {n_files}, обновлено: {last_updated}")
+
+        time.sleep(cycle)
+        print("перезаписалось")
+
 
 
 if __name__ == "__main__":
