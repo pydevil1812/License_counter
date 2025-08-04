@@ -1,4 +1,4 @@
-# Импортируем всё подряд, потому что иначе не работает
+# Импортируем всё подряд
 import sys
 import yaml
 import os
@@ -13,140 +13,8 @@ from datetime import datetime
 from contextlib import contextmanager
 import subprocess, tempfile, textwrap, webbrowser
 
+# ==== Работа с базой ====
 
-
-# класс, который возвращает всё сразу (моно пользоваться только программистам уровня senior, остальные не настолько ленивые)
-class ALL(Resource):
-    def get(self):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT path, size FROM folders")
-            rows = cursor.fetchall()
-            all_folders = {path: size for path, size in rows}
-            cursor.execute("SELECT path, filenum FROM folders")
-            rowz = cursor.fetchall()
-            all_folderz = {path: filenum for path, filenum in rowz}
-            results = {}
-            errors = {}
-            for name, db_info in db.items():
-                db_uri = db_info["uri"]
-                db_table = db_info["table"]
-                try:
-                    engine = create_engine(db_uri)
-                    with engine.connect() as conn:
-                        result = conn.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
-                        row = result.fetchone()
-                        count = row[0] if row else 0
-                        results[name] = count
-                except Exception as e:
-                    errors[name] = str(e)
-            return {"size": all_folders, "filenum": all_folderz, "db_dashboards_count": results}
-
-
-# возвращает статистику по всем базам, если вдруг надо
-class AllDashboards(Resource):
-    def get(self):
-        results = {}
-        errors = {}
-        for name, db_info in db.items():
-            db_uri = db_info["uri"]
-            db_table = db_info["table"]
-            try:
-                engine = create_engine(db_uri)
-                with engine.connect() as conn:
-                    result = conn.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
-                    row = result.fetchone()
-                    count = row[0] if row else 0
-                    results[name] = count
-            except Exception as e:
-                errors[name] = str(e)
-        response = {"db_dashboards_count": results}
-        if errors:
-            response["errors"] = errors
-        return response
-
-
-# Возвращает статистику по одной базе, если вдруг очень надо
-class Dashboard(Resource):
-    def get(self, str):
-        try:
-            if str not in db:
-                return {"error": f"Неизвестное имя базы: {str}"}, 404
-
-            db_info = db[str]
-            db_uri = db_info["uri"]
-            db_table = db_info["table"]
-
-            engine = create_engine(db_uri)
-
-            with engine.connect() as conn:
-                result = conn.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
-                row = result.fetchone()
-                count = row[0] if row else 0
-                return {str: count}
-
-        except Exception as e:
-            return {"error": f"Ошибка при запросе: {e}"}, 500
-
-
-# Возвращает размеры всех папок, потому что почему бы и нет
-class AllSizes(Resource):
-    def get(self):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT path, size FROM folders")
-            rows = cursor.fetchall()
-            all_folders = {path: size for path, size in rows}
-            return {"folders": all_folders}
-
-
-# Возвращает размер по имени папки или total, если лень указывать имя
-class SizeByName(Resource):
-    def get(self, str):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            if str == "total":
-                cursor.execute("SELECT size FROM folders")
-                sizes = [row[0] for row in cursor.fetchall()]
-                return {"total": sum(sizes)}
-            else:
-                cursor.execute("SELECT size FROM folders WHERE path = ?", (str,))
-                row = cursor.fetchone()
-                if row:
-                    return {str: row[0]}
-                return {"error": "Папка не найдена"}, 404
-
-
-# Возвращает количество файлов во всех папках, потому что надо
-class AllFilnums(Resource):
-    def get(self):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT path, filenum FROM folders")
-            rows = cursor.fetchall()
-            all_folders = {path: filenum for path, filenum in rows}
-            return {"files_in_folders": all_folders}
-
-
-# Возвращает количество файлов по имени папки или total, если лень
-class FilenumByName(Resource):
-    def get(self, str):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            if str == "total":
-                cursor.execute("SELECT filenum FROM folders")
-                filenums = [row[0] for row in cursor.fetchall()]
-                return {"total": sum(filenums)}
-            else:
-                cursor.execute("SELECT filenum FROM folders WHERE path = ?", (str,))
-                row = cursor.fetchone()
-                if row:
-                    return {str: row[0]}
-                return {"error": "Папка не найдена"}, 404
-
-
-
-# возвращает соединение с базой, ничего особенного
 @contextmanager
 def get_db_connection():
     conn = sqlite3.connect(db_path)
@@ -155,29 +23,25 @@ def get_db_connection():
     finally:
         conn.close()
 
-# Создаёт таблицу, если вдруг её нет
 def create_table():
     with get_db_connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS folders (
+        conn.execute("DROP TABLE IF EXISTS folders")  # пересоздаём таблицу каждый раз
+        conn.execute("""
+            CREATE TABLE folders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 path TEXT NOT NULL,
                 size INTEGER NOT NULL,
                 n_files INTEGER NOT NULL,
                 last_updated TEXT NOT NULL
             )
-        """
-        )
+        """)
         conn.commit()
 
-# Чистит таблицу, потому что проще перезаписать всё заново
 def clear_table():
     with get_db_connection() as conn:
         conn.execute("DELETE FROM folders")
         conn.commit()
 
-# Вставляет размер и количество файлов в базу, потому что надо
 def insert_folder_size(path, size, n_files):
     now = datetime.now().isoformat()
     with get_db_connection() as conn:
@@ -187,12 +51,11 @@ def insert_folder_size(path, size, n_files):
         )
         conn.commit()
 
-# Считает размер и количество файлов в папке, потому что никто другой не будет
 def get_path_size_filenum(path):
     path_obj = Path(path)
     if not path_obj.exists():
         print(f"⚠ Путь не найден: {path}")
-        return 0
+        return 0, 0
     size = 0
     n_files = 0
     for f in path_obj.rglob("*"):
@@ -201,111 +64,127 @@ def get_path_size_filenum(path):
             n_files += 1
     return size, n_files
 
-# Тут раньше была функция для подсчёта файлов, но она не нужна
-"""def filenum_in_folder(path):
-    file_count = 0
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            full_path = os.path.join(root, file)
-            if os.path.isfile(full_path):
-                file_count += 1
-    return file_count"""
+# ==== API ресурсы ====
 
-# Бесконечно обновляет базу, потому что Flask не умеет по-другому
+class ALL(Resource):
+    def get(self):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, size FROM folders")
+            all_folders = {path: size for path, size in cursor.fetchall()}
+            cursor.execute("SELECT path, n_files FROM folders")
+            all_folderz = {path: n_files for path, n_files in cursor.fetchall()}
+        results = {}
+        errors = {}
+        for name, db_info in db.items():
+            db_uri = db_info["uri"]
+            db_table = db_info["table"]
+            try:
+                engine = create_engine(db_uri)
+                with engine.connect() as conn_db:
+                    result = conn_db.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
+                    row = result.fetchone()
+                    count = row[0] if row else 0
+                    results[name] = count
+            except Exception as e:
+                errors[name] = str(e)
+        return {"size": all_folders, "n_files": all_folderz, "db_dashboards_count": results}
+
+class AllDashboards(Resource):
+    def get(self):
+        results = {}
+        errors = {}
+        for name, db_info in db.items():
+            db_uri = db_info["uri"]
+            db_table = db_info["table"]
+            try:
+                engine = create_engine(db_uri)
+                with engine.connect() as conn_db:
+                    result = conn_db.execute(text(f"SELECT COUNT(*) FROM {db_table}"))
+                    row = result.fetchone()
+                    count = row[0] if row else 0
+                    results[name] = count
+            except Exception as e:
+                errors[name] = str(e)
+        resp = {"db_dashboards_count": results}
+        if errors:
+            resp["errors"] = errors
+        return resp
+
+class Dashboard(Resource):
+    def get(self, str):
+        try:
+            if str not in db:
+                return {"error": f"Неизвестное имя базы: {str}"}, 404
+            db_info = db[str]
+            engine = create_engine(db_info["uri"])
+            with engine.connect() as conn_db:
+                result = conn_db.execute(text(f"SELECT COUNT(*) FROM {db_info['table']}"))
+                row = result.fetchone()
+                count = row[0] if row else 0
+                return {str: count}
+        except Exception as e:
+            return {"error": f"Ошибка при запросе: {e}"}, 500
+
+class AllSizes(Resource):
+    def get(self):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, size FROM folders")
+            return {"folders": {p: s for p, s in cursor.fetchall()}}
+
+class SizeByName(Resource):
+    def get(self, str):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if str == "total":
+                cursor.execute("SELECT size FROM folders")
+                return {"total": sum(row[0] for row in cursor.fetchall())}
+            else:
+                cursor.execute("SELECT size FROM folders WHERE path=?", (str,))
+                row = cursor.fetchone()
+                return {str: row[0]} if row else ({"error": "Папка не найдена"}, 404)
+
+class AllFilnums(Resource):
+    def get(self):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, n_files FROM folders")
+            return {"files_in_folders": {p: f for p, f in cursor.fetchall()}}
+
+class FilenumByName(Resource):
+    def get(self, str):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if str == "total":
+                cursor.execute("SELECT n_files FROM folders")
+                return {"total": sum(row[0] for row in cursor.fetchall())}
+            else:
+                cursor.execute("SELECT n_files FROM folders WHERE path=?", (str,))
+                row = cursor.fetchone()
+                return {str: row[0]} if row else ({"error": "Папка не найдена"}, 404)
+
+# ==== Цикл обновления базы ====
+
 def update_db_loop():
     while True:
         clear_table()
         for name, path in disk_space.items():
             size, n_files = get_path_size_filenum(path)
             insert_folder_size(name, size, n_files)
-
-            # Получаем last_updated из базы
             with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT last_updated FROM folders WHERE path = ?", (name,))
-                row = cursor.fetchone()
-                last_updated = row[0] if row else "не найдено"
-
+                cur = conn.cursor()
+                cur.execute("SELECT last_updated FROM folders WHERE path=?", (name,))
+                last_updated = cur.fetchone()[0]
             print(f"{name}: {size} байт, файлов: {n_files}, обновлено: {last_updated}")
-
         time.sleep(cycle)
         print("перезаписалось")
 
-
+# ==== Запуск приложения ====
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.yaml")
-
-    # возвращает соединение с базой, ничего особенного
-    def get_db_connection():
-        return sqlite3.connect(db_path)
-
-    # Создаёт таблицу, если вдруг её нет
-    def create_table():
-        with get_db_connection() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS folders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    path TEXT NOT NULL,
-                    size INTEGER NOT NULL,
-                    filenum INTEGER NOT NULL
-                )
-            """
-            )
-            conn.commit()
-
-    # Чистит таблицу, потому что проще перезаписать всё заново
-    def clear_table():
-        with get_db_connection() as conn:
-            conn.execute("DELETE FROM folders")
-            conn.commit()
-
-    # Вставляет размер и количество файлов в базу, потому что надо
-    def insert_folder_size(path, size, filenum):
-        with get_db_connection() as conn:
-            conn.execute(
-                "INSERT INTO folders (path, size, filenum) VALUES (?, ?, ?)",
-                (path, size, filenum),
-            )
-            conn.commit()
-
-    # Считает размер и количество файлов в папке, потому что никто другой не будет
-    def get_path_size_filenum(path):
-        path_obj = Path(path)
-        if not path_obj.exists():
-            print(f"⚠ Путь не найден: {path}")
-            return 0
-        size = 0
-        filenum = 0
-        for f in path_obj.rglob("*"):
-            if f.is_file():
-                size += f.stat().st_size
-                filenum += 1
-        return size, filenum
-
-    # Тут раньше была функция для подсчёта файлов, но она не нужна
-    """def filenum_in_folder(path):
-        file_count = 0
-        for root, dirs, files in os.walk(path):
-            for file in files:
-                full_path = os.path.join(root, file)
-                if os.path.isfile(full_path):
-                    file_count += 1
-        return file_count"""
-
-    # Бесконечно обновляет базу, потому что Flask не умеет по-другому
-    def update_db_loop():
-        while True:
-            clear_table()
-            for name, path in disk_space.items():
-                size, filenum = get_path_size_filenum(path)
-                # filenum = filenum_in_folder(path)
-                insert_folder_size(name, size, filenum)
-                print(f"{name}: {size} байт записано в БД и столько файлов: {filenum}")
-            time.sleep(cycle)
-            print("перезаписалось")
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -314,26 +193,21 @@ if __name__ == "__main__":
         disk_space = config["disk_space"]
         db = config["db"]
         cycle = config.get("cycle")
-        dbpath = config.get("db_path")
+        db_path = os.path.join(script_dir, config.get("db_path"))
         port = config.get("port")
         host = config.get("host")
-        db_path = os.path.join(script_dir, dbpath)
-        create_table()
 
-        # Поток для обновления базы, потому что Flask иначе ругается
-        db_thread = threading.Thread(
-            target=update_db_loop, daemon=True
-        )
-        db_thread.start()
+        create_table()  # пересоздаём таблицу
+
+        threading.Thread(target=update_db_loop, daemon=True).start()
 
     except FileNotFoundError:
-        print("Ошибка: config.yaml файл не найден.")
+        print("Ошибка: config.yaml не найден.")
         sys.exit(1)
     except Exception as e:
-        print(f"Произошла ошибка: {e}")
+        print(f"Ошибка: {e}")
         sys.exit(1)
 
-    # запускается Flask, потому что надо же как-то отдавать API
     app = Flask(__name__)
     api = Api()
     api.add_resource(AllSizes, "/api/size")
@@ -342,9 +216,9 @@ if __name__ == "__main__":
     api.add_resource(AllFilnums, "/api/filenum")
     api.add_resource(Dashboard, "/api/count/<str>")
     api.add_resource(AllDashboards, "/api/count")
-    api.add_resource(ALL, '/api')
+    api.add_resource(ALL, "/api")
     api.init_app(app)
-        # === Функция для запуска Streamlit фронтенда ===
+
     def run_streamlit():
         frontend_code = textwrap.dedent(f"""
         import streamlit as st
@@ -353,78 +227,60 @@ if __name__ == "__main__":
         from streamlit_autorefresh import st_autorefresh
 
         API_BASE = "http://{host}:{port}/api"
-
-        # Автообновление каждые 5 секунд (5000 мс)
-        count = st_autorefresh(interval=5000, limit=None, key="refresh")
+        st_autorefresh(interval=5000, key="refresh")
 
         st.set_page_config(page_title="📊 Мониторинг API", layout="wide")
         st.title("📊 Мониторинг API")
 
-        tabs = st.tabs(["Общий обзор", "Размеры папок", "Файлы в папках", "Dashboards"])
+        tabs = st.tabs(["Общий обзор", "Размеры папок", "Файлы", "Dashboards"])
 
-        # Общий обзор
+        def bytes_to_mb(b): return round(b / (1024*1024), 2)
+
         with tabs[0]:
-            st.subheader("Общий обзор (/api)")
             try:
                 data = requests.get(API_BASE).json()
-                size_df = pd.DataFrame(data["size"].items(), columns=["Папка", "Размер (байт)"])
-                filenum_df = pd.DataFrame(data["filenum"].items(), columns=["Папка", "Файлы"])
-                dashboards_df = pd.DataFrame(data["db_dashboards_count"].items(), columns=["База", "Dashboards"])
-                st.write("**Размеры папок:**")
-                st.dataframe(size_df, use_container_width=True)
-                st.write("**Файлы в папках:**")
-                st.dataframe(filenum_df, use_container_width=True)
-                st.write("**Dashboards:**")
-                st.dataframe(dashboards_df, use_container_width=True)
+                size_df = pd.DataFrame([(k, bytes_to_mb(v)) for k,v in data["size"].items()], columns=["Папка","Размер (МБ)"])
+                files_df = pd.DataFrame(data["n_files"].items(), columns=["Папка","Файлы"])
+                dash_df = pd.DataFrame(data["db_dashboards_count"].items(), columns=["База","Dashboards"])
+                st.subheader("Размеры папок (МБ)")
+                st.dataframe(size_df)
+                st.subheader("Файлы")
+                st.dataframe(files_df)
+                st.subheader("Dashboards")
+                st.dataframe(dash_df)
             except Exception as e:
-                st.error(f"Ошибка: {{e}}")
+                st.error(e)
 
-        # Размеры папок
         with tabs[1]:
-            st.subheader("Размеры папок (/api/size)")
             try:
                 data = requests.get(f"{{API_BASE}}/size").json()
-                df = pd.DataFrame(data["folders"].items(), columns=["Папка", "Размер (байт)"])
-                st.dataframe(df, use_container_width=True)
+                df = pd.DataFrame([(k, bytes_to_mb(v)) for k,v in data["folders"].items()], columns=["Папка","Размер (МБ)"])
+                st.dataframe(df)
             except Exception as e:
-                st.error(f"Ошибка: {{e}}")
+                st.error(e)
 
-        # Файлы в папках
         with tabs[2]:
-            st.subheader("Файлы в папках (/api/filenum)")
             try:
                 data = requests.get(f"{{API_BASE}}/filenum").json()
-                df = pd.DataFrame(data["files_in_folders"].items(), columns=["Папка", "Количество файлов"])
-                st.dataframe(df, use_container_width=True)
+                df = pd.DataFrame(data["files_in_folders"].items(), columns=["Папка","Файлы"])
+                st.dataframe(df)
             except Exception as e:
-                st.error(f"Ошибка: {{e}}")
+                st.error(e)
 
-        # Dashboards
         with tabs[3]:
-            st.subheader("Dashboards (/api/count)")
             try:
                 data = requests.get(f"{{API_BASE}}/count").json()
-                df = pd.DataFrame(data["db_dashboards_count"].items(), columns=["База", "Количество Dashboard"])
-                st.dataframe(df, use_container_width=True)
+                df = pd.DataFrame(data["db_dashboards_count"].items(), columns=["База","Dashboards"])
+                st.dataframe(df)
             except Exception as e:
-                st.error(f"Ошибка: {{e}}")
+                st.error(e)
         """)
-
-        
         with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as tmp:
             tmp.write(frontend_code)
             tmp_path = tmp.name
-        
-        # Запускаем Streamlit
         subprocess.Popen(["streamlit", "run", tmp_path])
-        
-        # Даём пару секунд на старт, потом открываем браузер
         time.sleep(3)
         webbrowser.open("http://localhost:8501")
 
-    # Запуск Streamlit в отдельном потоке
     threading.Thread(target=run_streamlit, daemon=True).start()
-
     app.run(debug=False, port=port, host=host)
-
-
