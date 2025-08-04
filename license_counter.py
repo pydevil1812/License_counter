@@ -11,6 +11,7 @@ import threading
 from sqlalchemy import create_engine, text
 from datetime import datetime
 from contextlib import contextmanager
+import subprocess, tempfile, textwrap, webbrowser
 
 
 
@@ -343,4 +344,87 @@ if __name__ == "__main__":
     api.add_resource(AllDashboards, "/api/count")
     api.add_resource(ALL, '/api')
     api.init_app(app)
+        # === Функция для запуска Streamlit фронтенда ===
+    def run_streamlit():
+        frontend_code = textwrap.dedent(f"""
+        import streamlit as st
+        import pandas as pd
+        import requests
+        from streamlit_autorefresh import st_autorefresh
+
+        API_BASE = "http://{host}:{port}/api"
+
+        # Автообновление каждые 5 секунд (5000 мс)
+        count = st_autorefresh(interval=5000, limit=None, key="refresh")
+
+        st.set_page_config(page_title="📊 Мониторинг API", layout="wide")
+        st.title("📊 Мониторинг API")
+
+        tabs = st.tabs(["Общий обзор", "Размеры папок", "Файлы в папках", "Dashboards"])
+
+        # Общий обзор
+        with tabs[0]:
+            st.subheader("Общий обзор (/api)")
+            try:
+                data = requests.get(API_BASE).json()
+                size_df = pd.DataFrame(data["size"].items(), columns=["Папка", "Размер (байт)"])
+                filenum_df = pd.DataFrame(data["filenum"].items(), columns=["Папка", "Файлы"])
+                dashboards_df = pd.DataFrame(data["db_dashboards_count"].items(), columns=["База", "Dashboards"])
+                st.write("**Размеры папок:**")
+                st.dataframe(size_df, use_container_width=True)
+                st.write("**Файлы в папках:**")
+                st.dataframe(filenum_df, use_container_width=True)
+                st.write("**Dashboards:**")
+                st.dataframe(dashboards_df, use_container_width=True)
+            except Exception as e:
+                st.error(f"Ошибка: {{e}}")
+
+        # Размеры папок
+        with tabs[1]:
+            st.subheader("Размеры папок (/api/size)")
+            try:
+                data = requests.get(f"{{API_BASE}}/size").json()
+                df = pd.DataFrame(data["folders"].items(), columns=["Папка", "Размер (байт)"])
+                st.dataframe(df, use_container_width=True)
+            except Exception as e:
+                st.error(f"Ошибка: {{e}}")
+
+        # Файлы в папках
+        with tabs[2]:
+            st.subheader("Файлы в папках (/api/filenum)")
+            try:
+                data = requests.get(f"{{API_BASE}}/filenum").json()
+                df = pd.DataFrame(data["files_in_folders"].items(), columns=["Папка", "Количество файлов"])
+                st.dataframe(df, use_container_width=True)
+            except Exception as e:
+                st.error(f"Ошибка: {{e}}")
+
+        # Dashboards
+        with tabs[3]:
+            st.subheader("Dashboards (/api/count)")
+            try:
+                data = requests.get(f"{{API_BASE}}/count").json()
+                df = pd.DataFrame(data["db_dashboards_count"].items(), columns=["База", "Количество Dashboard"])
+                st.dataframe(df, use_container_width=True)
+            except Exception as e:
+                st.error(f"Ошибка: {{e}}")
+        """)
+
+        
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as tmp:
+            tmp.write(frontend_code)
+            tmp_path = tmp.name
+        
+        # Запускаем Streamlit
+        subprocess.Popen(["streamlit", "run", tmp_path])
+        
+        # Даём пару секунд на старт, потом открываем браузер
+        time.sleep(3)
+        webbrowser.open("http://localhost:8501")
+
+    # Запуск Streamlit в отдельном потоке
+    threading.Thread(target=run_streamlit, daemon=True).start()
+
     app.run(debug=False, port=port, host=host)
+
+
