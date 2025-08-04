@@ -9,12 +9,9 @@ from flask import Flask
 from flask_restful import Api, Resource
 import threading
 from sqlalchemy import create_engine, text
-<<<<<<< HEAD
-=======
 from datetime import datetime
 from contextlib import contextmanager
 
->>>>>>> 42de696 (update  get_db_connection)
 
 
 # класс, который возвращает всё сразу (моно пользоваться только программистам уровня senior, остальные не настолько ленивые)
