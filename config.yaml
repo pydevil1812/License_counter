@@ -8,7 +8,6 @@ port: 3000
 host: '0.0.0.0'
 
 db_path: "folders.db"
-api: "http://127.0.0.1:3000/api/main"
 
 db:
   name1:
