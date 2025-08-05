@@ -56,98 +56,100 @@
 </head>
 <body>
     <div class="container">
-        <h1 id="tableTitle">Данные API</h1>
+    <h2>Объем файловой системы(в байтах)</h2>
+    <div id="sizeOutput">Загрузка размеров...</div>
 
-        <label>Выберите эндпоинт:</label>
-        <select id="endpointSelect">
-            <option value="/api">/api (все данные)</option>
-            <option value="/api/size">/api/size (размеры)</option>
-            <option value="/api/filenum">/api/filenum (кол-во файлов)</option>
-            <option value="/api/count">/api/count (Dashboards)</option>
-        </select>
-        <button onclick="loadData()">Загрузить</button>
+    <h2>Количество файлов в директориях</h2>
+    <div id="filenumOutput">Загрузка количества файлов...</div>
 
-        <div id="output"></div>
+    <h2>Количество дашбордов</h2>
+    <div id="dashboardOutput">Загрузка dashboard...</div>
     </div>
     <script>
-        const refreshInterval = 5000; // Каждые 5 секунд будим сервер, не даём ему заснуть
-        let currentEndpoint = document.getElementById('endpointSelect').value; // Запоминаем, что выбрал чел
+    async function loadSizes() {
+    const output = document.getElementById('sizeOutput');
+    output.innerHTML = 'Загрузка размеров...';
 
-        // Сразу загрузим данные, чтобы не ждать пока пользователь подумает
-        loadData();
-        // Потом будем повторять это дело автоматом, чтоб было всегда свежее
-        setInterval(loadData, refreshInterval);
+    try {
+        const resp = await fetch('/api/size');
+        if (!resp.ok) throw new Error('Ошибка загрузки размеров');
+        const data = await resp.json();
+        renderTable(data, output);
+    } catch(e) {
+        output.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+    }
 
-        // Если чел выбрал другой эндпоинт — меняем наш target и загружаем новую движуху
-        document.getElementById('endpointSelect').addEventListener('change', function() {
-            currentEndpoint = this.value;
-            loadData();
-        });
+    async function loadFileNums() {
+    const output = document.getElementById('filenumOutput');
+    output.innerHTML = 'Загрузка количества файлов...';
 
-        // Функция-звезда — она дергает API и рисует таблицу
-        async function loadData() {
-            const outputDiv = document.getElementById('output');
-            outputDiv.innerHTML = 'Загрузка...'; // Пока ждем, говорим что работаем
+    try {
+        const resp = await fetch('/api/filenum');
+        if (!resp.ok) throw new Error('Ошибка загрузки количества файлов');
+        const data = await resp.json();
+        renderTable(data, output);
+    } catch(e) {
+        output.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+    }
 
-            try {
-                const response = await fetch(currentEndpoint);
-                if (!response.ok) throw new Error('Ошибка API'); // Если сервер капризничает — ругаемся
-                const jsonData = await response.json();
+    async function loadDashboard() {
+    const output = document.getElementById('dashboardOutput');
+    output.innerHTML = 'Загрузка dashboard...';
 
-                renderTable(jsonData); // Отрисовываем красоту
-            } catch (err) {
-                outputDiv.innerHTML = `<p class="error">${err.message}</p>`; // Если что-то пошло не так — показываем красненьким
-            }
-        }
+    try {
+        const resp = await fetch('/api/count');
+        if (!resp.ok) throw new Error('Ошибка загрузки dashboard');
+        const data = await resp.json();
+        renderTable(data.db_dashboards_count || {}, output);
+    } catch(e) {
+        output.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+    }
 
-        // Универсальная функция-магия: из любого JSON делает таблицу, чтоб глаза не мозолило
-        function renderTable(data) {
-            const outputDiv = document.getElementById('output');
-            outputDiv.innerHTML = ''; // Чистим предыдущее
-
-            if (typeof data !== 'object' || data === null) {
-                outputDiv.innerHTML = '<p class="error">Некорректный JSON</p>'; // Если вообще фигня пришла — не молчим
-                return;
-            }
-
-            // Короче, превращаем объект в массив строк, чтобы потом красиво отобразить
-            let rows = [];
-            if (Array.isArray(data)) {
-                rows = data; // Если это уже массив — всё чики-пуки
-            } else if (typeof data === 'object') {
-                // Если объект — раскладываем по ключам-значениям, чтоб не было скучно
-                for (let key in data) {
-                    if (typeof data[key] === 'object') {
-                        for (let subKey in data[key]) {
-                            rows.push({name: subKey, value: data[key][subKey]});
-                        }
-                    } else {
-                        rows.push({name: key, value: data[key]});
-                    }
+    function renderTable(data, outputDiv) {
+    let rows = [];
+    if (Array.isArray(data)) {
+        rows = data;
+    } else if (typeof data === 'object') {
+        for (let key in data) {
+            if (typeof data[key] === 'object') {
+                for (let subKey in data[key]) {
+                    rows.push({name: subKey, value: data[key][subKey]});
                 }
+            } else {
+                rows.push({name: key, value: data[key]});
             }
-
-            if (rows.length === 0) {
-                outputDiv.innerHTML = '<p class="error">Нет данных</p>'; // Нет данных — грустно, но честно
-                return;
-            }
-
-            // Берем колонки из первого объекта — чем богаты, тем и рады
-            const columns = Object.keys(rows[0]);
-            let html = '<table><thead><tr>';
-            columns.forEach(col => html += `<th>${col}</th>`); // Шапка таблицы — заголовки колонок
-            html += '</tr></thead><tbody>';
-
-            // Заполняем таблицу строками
-            rows.forEach(row => {
-                html += '<tr>';
-                columns.forEach(col => html += `<td>${row[col]}</td>`); // Каждую ячейку по очереди
-                html += '</tr>';
-            });
-
-            html += '</tbody></table>';
-            outputDiv.innerHTML = html; // Вставляем в страницу
         }
+    }
+
+    if (rows.length === 0) {
+        outputDiv.innerHTML = '<p class="error">Нет данных</p>';
+        return;
+    }
+
+    const columns = Object.keys(rows[0]);
+    let html = '<table><thead><tr>';
+    columns.forEach(col => html += `<th>${col}</th>`);
+    html += '</tr></thead><tbody>';
+    rows.forEach(row => {
+        html += '<tr>';
+        columns.forEach(col => html += `<td>${row[col]}</td>`);
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+
+    outputDiv.innerHTML = html;
+    }
+
+    async function loadAll() {
+    await loadSizes();
+    await loadFileNums();
+    await loadDashboard();
+    }
+
+    loadAll();
+    setInterval(loadAll, 5000);
     </script>
-</body>
-</html>
+

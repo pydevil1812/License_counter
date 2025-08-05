@@ -77,7 +77,7 @@ class ALL(Resource):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT path, size FROM folders")
-            all_folders = {path: size for path, size in cursor.fetchall()}
+            all_folders = {path: size/1024/1024 for path, size in cursor.fetchall()}
             cursor.execute("SELECT path, n_files FROM folders")
             all_folderz = {path: n_files for path, n_files in cursor.fetchall()}
         results = {}
@@ -141,7 +141,7 @@ class AllSizes(Resource):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT path, size FROM folders")
-            return {"folders": {p: s for p, s in cursor.fetchall()}}
+            return {"folders": {p: s/1024/1024 for p, s in cursor.fetchall()}}
 
 class SizeByName(Resource):
     def get(self, str):
@@ -150,10 +150,10 @@ class SizeByName(Resource):
             cursor = conn.cursor()
             if str == "total":
                 cursor.execute("SELECT size FROM folders")
-                return {"total": sum(row[0] for row in cursor.fetchall())}  # Суммируем всех папок
+                return {"total": sum(row[0] for row in cursor.fetchall())/1024/1024}  # Суммируем всех папок
             else:
                 cursor.execute("SELECT size FROM folders WHERE path=?", (str,))
-                row = cursor.fetchone()
+                row = cursor.fetchone() / 1024
                 return {str: row[0]} if row else ({"error": "Папка не найдена"}, 404)
 
 class AllFilnums(Resource):
