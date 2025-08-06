@@ -3,3 +3,4 @@ pathlib==1.0.1
 Flask==3.1.1
 Flask-RESTful==0.3.10
 SQLAlchemy==2.0.41
+python-dotenv==1.1.1

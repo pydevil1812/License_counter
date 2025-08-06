@@ -1,6 +1,4 @@
-# Импортируем всё подряд, потому что вдруг пригодится
 import sys
-import yaml
 import os
 import sqlite3
 import time
@@ -11,6 +9,11 @@ import threading
 from sqlalchemy import create_engine, text
 from datetime import datetime
 from contextlib import contextmanager
+import json
+from dotenv import load_dotenv
+
+# ---- Загружаем .env файл, чтобы переменные окружения появились в os.environ
+load_dotenv()
 
 # ==== Работа с базой ====
 
@@ -142,10 +145,8 @@ def update_db_loop():
         try:
             with get_db_connection() as conn:
                 cur = conn.cursor()
-                #начало транзакции
                 conn.execute("BEGIN")
 
-                # Создаем временную таблицу
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS folders_temp (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,7 +158,6 @@ def update_db_loop():
                 """)
                 cur.execute("DELETE FROM folders_temp")
 
-                # Заполняем временную таблицу новыми данными
                 now = datetime.now().isoformat()
                 for name, path in disk_space.items():
                     size, n_files = get_path_size_filenum(path)
@@ -165,50 +165,48 @@ def update_db_loop():
                         "INSERT INTO folders_temp (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
                         (name, size, n_files, now)
                     )
-                    print(f"{name}: {size} байт, файлов: {n_files}, обновлено: {now}")
+                    print(f"{name}: {size} bytes, files: {n_files}, updated: {now}")
 
-                # Заменяем старую таблицу новыми данными
                 cur.execute("DELETE FROM folders")
                 cur.execute("""
                     INSERT INTO folders (path, size, n_files, last_updated)
                     SELECT path, size, n_files, last_updated FROM folders_temp
                 """)
-                
-                conn.commit() # Фиксирует изменения если все прошло успешно
-                print("Данные обновлены")
+
+                conn.commit()
+                print("Data updated successfully")
 
         except Exception as e:
-            conn.rollback() # откатывает изменения при любой ошибке, чтобы база вернулась к прежнему состоянию
-            print(f"❌ Ошибка обновления: {e} — откат изменений")
+            conn.rollback()
+            print(f"❌ Update error: {e} — rolling back")
 
         time.sleep(cycle)
 
 # ==== Запуск ====
 
 if __name__ == "__main__":
+    # Корень скрипта, чтобы с ним работать с путями, если надо
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "config.yaml")
 
+    # Читаем конфиги из ENV
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+        port = int(os.getenv("PORT", "5000"))
+        host = os.getenv("HOST", "127.0.0.1")
+        db_path = os.getenv("DB_PATH", os.path.join(script_dir, "folders.db"))
+        cycle = int(os.getenv("CYCLE", "60"))
 
-        disk_space = config["disk_space"]
-        db = config["db"]
-        cycle = config.get("cycle", 60)
-        db_path = os.path.join(script_dir, config.get("db_path", "data.db"))
-        port = config.get("port", 5000)
-        host = config.get("host", "127.0.0.1")
+        # Сложные структуры в ENV в JSON-формате, читаем и парсим
+        disk_space_raw = os.getenv("DISK_SPACE", '{"path1": "/License_counter/test", "path2": "/License_counter/end"}')
+        disk_space = json.loads(disk_space_raw)
+
+        db_raw = os.getenv("DB", '{"name1": {"uri": "sqlite:///folders.db", "table": "folders"}}')
+        db = json.loads(db_raw)
 
         create_table()
-
         threading.Thread(target=update_db_loop, daemon=True).start()
 
-    except FileNotFoundError:
-        print("Ошибка: config.yaml не найден")
-        sys.exit(1)
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Config loading error: {e}")
         sys.exit(1)
 
     app = Flask(__name__)

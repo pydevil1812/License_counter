@@ -1,6 +1,6 @@
 disk_space:
-  path1: "/home/idan/myenv/test"
-  path2: "/home/idan/myenv/end"
+  path1: "/License_counter/test"
+  path2: "/License_counter/end"
 
 cycle: 15
 
