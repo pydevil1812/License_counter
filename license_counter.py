@@ -25,6 +25,7 @@ def get_db_connection():
     finally:
         conn.close()
 
+
 def create_table():
     with get_db_connection() as conn:
         conn.execute("""
@@ -37,6 +38,7 @@ def create_table():
             )
         """)
         conn.commit()
+
 
 def get_path_size_filenum(path):
     path_obj = Path(path)
@@ -185,21 +187,18 @@ def update_db_loop():
 # ==== Запуск ====
 
 if __name__ == "__main__":
-    # Корень скрипта, чтобы с ним работать с путями, если надо
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Читаем конфиги из ENV
     try:
-        port = int(os.getenv("PORT", "5000"))
+        port = int(os.getenv("PORT", "3000"))
         host = os.getenv("HOST", "127.0.0.1")
         db_path = os.getenv("DB_PATH", os.path.join(script_dir, "folders.db"))
         cycle = int(os.getenv("CYCLE", "60"))
 
-        # Сложные структуры в ENV в JSON-формате, читаем и парсим
-        disk_space_raw = os.getenv("DISK_SPACE", '{"path1": "/License_counter/test", "path2": "/License_counter/end"}')
+        disk_space_raw = os.getenv("DISK_SPACE", "")
         disk_space = json.loads(disk_space_raw)
-
-        db_raw = os.getenv("DB", '{"name1": {"uri": "sqlite:///folders.db", "table": "folders"}}')
+        db_raw = os.getenv("DB", "")
         db = json.loads(db_raw)
 
         create_table()

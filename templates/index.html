@@ -56,11 +56,11 @@
 </head>
 <body>
     <div class="container">
-    <h2>Объем файловой системы(в мегабайтах)</h2>
+    <h2>Объем(в мегабайтах)</h2>
     <div id="sizeOutput">Загрузка размеров...</div>
 
-    <h2>Количество файлов в директориях</h2>
-    <div id="filenumOutput">Загрузка количества файлов...</div>
+    <h2>Количество документов</h2>
+    <div id="filenumOutput">Загрузка количества документов...</div>
 
     <h2>Количество дашбордов</h2>
     <div id="dashboardOutput">Загрузка dashboard...</div>
@@ -109,38 +109,55 @@
     }
 
     function renderTable(data, outputDiv) {
-    let rows = [];
-    if (Array.isArray(data)) {
-        rows = data;
-    } else if (typeof data === 'object') {
-        for (let key in data) {
-            if (typeof data[key] === 'object') {
-                for (let subKey in data[key]) {
-                    rows.push({name: subKey, value: data[key][subKey]});
+        let rows = [];
+        if (Array.isArray(data)) {
+            rows = data;
+        } else if (typeof data === 'object') {
+            for (let key in data) {
+                if (typeof data[key] === 'object') {
+                    for (let subKey in data[key]) {
+                        rows.push({name: subKey, value: data[key][subKey]});
+                    }
+                } else {
+                    rows.push({name: key, value: data[key]});
                 }
-            } else {
-                rows.push({name: key, value: data[key]});
             }
         }
-    }
 
-    if (rows.length === 0) {
-        outputDiv.innerHTML = '<p class="error">Нет данных</p>';
-        return;
-    }
+        if (rows.length === 0) {
+            outputDiv.innerHTML = '<p class="error">Нет данных</p>';
+            return;
+        }
 
-    const columns = Object.keys(rows[0]);
-    let html = '<table><thead><tr>';
-    columns.forEach(col => html += `<th>${col}</th>`);
-    html += '</tr></thead><tbody>';
-    rows.forEach(row => {
-        html += '<tr>';
-        columns.forEach(col => html += `<td>${row[col]}</td>`);
-        html += '</tr>';
-    });
-    html += '</tbody></table>';
+        const columns = Object.keys(rows[0]);
+        const columnNames = {
+            name: "Имя",
+            value: "Значение"
+        };
 
-    outputDiv.innerHTML = html;
+        // --- Считаем итог (total) ---
+        let totalValue = 0;
+        rows.forEach(row => {
+            let val = parseFloat(row.value);
+            if (!isNaN(val)) totalValue += val;
+        });
+
+        // --- Добавляем строку "Итого" ---
+        rows.push({name: "Итого", value: totalValue.toFixed(2)});
+
+        let html = '<table><thead><tr>';
+        columns.forEach(col => {
+            html += `<th>${columnNames[col] || col}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        rows.forEach(row => {
+            html += '<tr>';
+            columns.forEach(col => html += `<td>${row[col]}</td>`);
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+
+        outputDiv.innerHTML = html;
     }
 
     async function loadAll() {
@@ -150,7 +167,7 @@
     }
 
     loadAll();
-    setInterval(loadAll, 5000);
+    setInterval(loadAll, 30000);
     </script>
 </body>
 </html>
