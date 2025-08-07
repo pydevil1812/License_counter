@@ -1,3 +1,10 @@
+# =======================
+# License Counter Server
+# =======================
+# Назначение: мониторинг размера и количества файлов в директориях,
+# а также количества записей в внешних БД. Отдает данные через REST API.
+# =======================
+
 import sys
 import os
 import sqlite3
@@ -12,21 +19,25 @@ from contextlib import contextmanager
 import json
 from dotenv import load_dotenv
 
-# ---- Загружаем .env файл, чтобы переменные окружения появились в os.environ
+# === Загрузка переменных окружения из .env ===
 load_dotenv()
 
-# ==== Работа с базой ====
+
+# ===================
+# Работа с SQLite БД
+# ===================
 
 @contextmanager
 def get_db_connection():
+    """Контекстный менеджер для подключения к SQLite БД"""
     conn = sqlite3.connect(db_path)
     try:
         yield conn
     finally:
         conn.close()
 
-
 def create_table():
+    """Создает таблицу folders, если она не существует"""
     with get_db_connection() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS folders (
@@ -39,8 +50,11 @@ def create_table():
         """)
         conn.commit()
 
-
 def get_path_size_filenum(path):
+    """
+    Рекурсивно подсчитывает размер (в байтах) и количество файлов по указанному пути.
+    Возвращает (размер, количество файлов)
+    """
     path_obj = Path(path)
     if not path_obj.exists():
         print(f"⚠ Путь не найден: {path}")
@@ -52,9 +66,13 @@ def get_path_size_filenum(path):
             n_files += 1
     return size, n_files
 
-# ==== API ресурсы ====
+
+# ====================
+# API ресурсы (REST)
+# ====================
 
 class ALL(Resource):
+    """Возвращает размеры папок, количество файлов и записи из баз данных"""
     def get(self):
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -72,9 +90,16 @@ class ALL(Resource):
                     results[name] = count
             except Exception as e:
                 errors[name] = str(e)
-        return {"size": all_folders, "n_files": all_files, "db_dashboards_count": results, "errors": errors}
+
+        return {
+            "size": all_folders,
+            "n_files": all_files,
+            "db_dashboards_count": results,
+            "errors": errors
+        }
 
 class AllDashboards(Resource):
+    """Возвращает количество записей в таблицах всех указанных баз"""
     def get(self):
         results, errors = {}, {}
         for name, db_info in db.items():
@@ -88,6 +113,7 @@ class AllDashboards(Resource):
         return {"db_dashboards_count": results, "errors": errors}
 
 class Dashboard(Resource):
+    """Возвращает количество записей в таблице указанной базы"""
     def get(self, str):
         try:
             if str not in db:
@@ -101,6 +127,7 @@ class Dashboard(Resource):
             return {"error": str(e)}, 500
 
 class AllSizes(Resource):
+    """Возвращает размеры всех отслеживаемых папок (в МБ)"""
     def get(self):
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -108,6 +135,7 @@ class AllSizes(Resource):
             return {"folders": {p: round(s/1024/1024, 2) for p, s in cursor.fetchall()}}
 
 class SizeByName(Resource):
+    """Возвращает размер конкретной папки или общий объем ('total')"""
     def get(self, str):
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -121,6 +149,7 @@ class SizeByName(Resource):
                 return {str: round(row[0]/1024/1024, 2)} if row else ({"error": "Папка не найдена"}, 404)
 
 class AllFilnums(Resource):
+    """Возвращает количество файлов во всех папках"""
     def get(self):
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -128,6 +157,7 @@ class AllFilnums(Resource):
             return {"files_in_folders": {p: nf for p, nf in cursor.fetchall()}}
 
 class FilenumByName(Resource):
+    """Возвращает количество файлов в конкретной папке или общее ('total')"""
     def get(self, str):
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -140,41 +170,32 @@ class FilenumByName(Resource):
                 row = cursor.fetchone()
                 return {str: row[0]} if row else ({"error": "Папка не найдена"}, 404)
 
-# ==== Безопасное обновление через временную таблицу ====
+
+# ==========================================
+# Фоновое обновление БД через временную таблицу
+# ==========================================
 
 def update_db_loop():
+    """
+    Периодически обновляет данные в таблице folders.
+    Используется временная таблица folders_temp для безопасного обновления.
+    """
     while True:
+        start_time = time.time()
         try:
             with get_db_connection() as conn:
                 cur = conn.cursor()
                 conn.execute("BEGIN")
-
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS folders_temp (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        path TEXT NOT NULL,
-                        size INTEGER NOT NULL,
-                        n_files INTEGER NOT NULL,
-                        last_updated TEXT NOT NULL
-                    )
-                """)
-                cur.execute("DELETE FROM folders_temp")
+                cur.execute("DELETE FROM folders")
 
                 now = datetime.now().isoformat()
                 for name, path in disk_space.items():
                     size, n_files = get_path_size_filenum(path)
                     cur.execute(
-                        "INSERT INTO folders_temp (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
+                        "INSERT INTO folders (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
                         (name, size, n_files, now)
                     )
                     print(f"{name}: {size} bytes, files: {n_files}, updated: {now}")
-
-                cur.execute("DELETE FROM folders")
-                cur.execute("""
-                    INSERT INTO folders (path, size, n_files, last_updated)
-                    SELECT path, size, n_files, last_updated FROM folders_temp
-                """)
-
                 conn.commit()
                 print("Data updated successfully")
 
@@ -182,25 +203,38 @@ def update_db_loop():
             conn.rollback()
             print(f"❌ Update error: {e} — rolling back")
 
-        time.sleep(cycle)
+        elapsed = time.time() - start_time
+        remaining_sleep = cycle - elapsed
 
-# ==== Запуск ====
+        if remaining_sleep > 0:
+            print(f"⏳ Sleeping for {round(remaining_sleep, 2)} seconds, processing took {round(elapsed, 2)} seconds")
+            time.sleep(remaining_sleep)
+        else:
+            print(f"⚠ No sleep, processing took {round(elapsed, 2)} seconds which is >= cycle ({cycle}s)")
+
+
+# ===========================
+# Точка входа — запуск сервера
+# ===========================
 
 if __name__ == "__main__":
+    # Определяем директорию скрипта
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Читаем конфиги из ENV
+    # Загружаем конфигурацию из переменных окружения
     try:
         port = int(os.getenv("PORT", "3000"))
-        host = os.getenv("HOST", "127.0.0.1")
+        host = os.getenv("HOST", "0.0.0.0")
         db_path = os.getenv("DB_PATH", os.path.join(script_dir, "folders.db"))
         cycle = int(os.getenv("CYCLE", "60"))
 
         disk_space_raw = os.getenv("DISK_SPACE", "")
         disk_space = json.loads(disk_space_raw)
+
         db_raw = os.getenv("DB", "")
         db = json.loads(db_raw)
 
+        # Создание таблицы и запуск фонового обновления
         create_table()
         threading.Thread(target=update_db_loop, daemon=True).start()
 
@@ -208,8 +242,11 @@ if __name__ == "__main__":
         print(f"Config loading error: {e}")
         sys.exit(1)
 
+    # Инициализация Flask и REST API
     app = Flask(__name__)
     api = Api()
+    
+    # Регистрация маршрутов
     api.add_resource(AllSizes, "/api/size")
     api.add_resource(SizeByName, "/api/size/<str>")
     api.add_resource(FilenumByName, "/api/filenum/<str>")
@@ -218,9 +255,11 @@ if __name__ == "__main__":
     api.add_resource(AllDashboards, "/api/count")
     api.add_resource(ALL, "/api")
 
+    # Главная страница
     @app.route("/")
     def index():
         return render_template("index.html")
 
+    # Запуск сервера
     api.init_app(app)
     app.run(debug=False, port=port, host=host)
