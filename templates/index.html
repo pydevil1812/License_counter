@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="style.css">
+<title>API Viewer</title>
+<style>
+    /* Чисто базовый стиль, чтобы не выглядело как беда */
+    body {
+        font-family: Arial, sans-serif; /* Не, Comic Sans - не сегодня */
+        background: #f4f6f9; /* Мягкий фон, чтобы глаза не горели */
+        margin: 0; /* Ну чтоб не было никаких сдвигов */
+        padding: 20px; /* Немного воздуха для контента */
+        color: #333; /* Темно-серый, но не черный — глаз радует */
+    }
+    .container {
+        max-width: 900px; /* Ни слишком большой, ни маленький — золотая середина */
+        margin: auto; /* Центрируем красиво, чтобы все видели */
+        background: #fff; /* Белый прям как снег, чисто */
+        padding: 20px; /* Просторно, не душно */
+        border-radius: 10px; /* Скругляем углы — теперь модно */
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1); /* Тень, чтоб был эффект 3D */
+    }
+    h1 {
+        text-align: center; /* Заголовок по центру, чтобы все обратили внимание */
+        margin-bottom: 20px; /* Немного отступа, чтобы не сливалось */
+    }
+    select, button {
+        padding: 8px; /* Чтобы пальцы не уставали */
+        margin: 5px 0; /* Маленький отступ, чтоб не слиплось */
+        border-radius: 5px; /* Чуть скругляем, щас модно */
+        border: 1px solid #ccc; /* Понятная рамка, не страшная */
+        font-size: 14px; /* Читаемый размер текста */
+    }
+    table {
+        width: 100%; /* Таблица во всю ширину, потому что надо */
+        border-collapse: collapse; /* Борьба с двойными линиями */
+        margin-top: 20px; /* Отступ сверху, чтобы не прилипала */
+    }
+    th, td {
+        border: 1px solid #ddd; /* Тоненькая рамочка для каждой ячейки */
+        padding: 8px; /* Чтоб текст не прилипал к краям */
+        text-align: left; /* Всё слева — проще читать */
+    }
+    th {
+        background-color: #4CAF50; /* Зеленый — потому что это цвет успеха */
+        color: white; /* Контрастно и круто */
+    }
+    .error {
+        color: red; /* Ошибка — это красный, как у мамы "Ты опять это сломал?" */
+        text-align: center; /* Пусть жалуется посередине */
+        margin-top: 15px; /* Чтобы отделялось от всего остального */
+    }
+</style>
+</head>
+<body>
+    <div class="container">
+    <h2>Объем(в мегабайтах)</h2>
+    <div id="sizeOutput">Загрузка размеров...</div>
+
+    <h2>Количество документов</h2>
+    <div id="filenumOutput">Загрузка количества документов...</div>
+
+    <h2>Количество дашбордов</h2>
+    <div id="dashboardOutput">Загрузка dashboard...</div>
+    </div>
+    <script>
+    async function loadSizes() {
+    const output = document.getElementById('sizeOutput');
+    output.innerHTML = 'Загрузка размеров...';
+
+    try {
+        const resp = await fetch('/api/size');
+        if (!resp.ok) throw new Error('Ошибка загрузки размеров');
+        const data = await resp.json();
+        renderTable(data, output);
+    } catch(e) {
+        output.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+    }
+
+    async function loadFileNums() {
+    const output = document.getElementById('filenumOutput');
+    output.innerHTML = 'Загрузка количества файлов...';
+
+    try {
+        const resp = await fetch('/api/filenum');
+        if (!resp.ok) throw new Error('Ошибка загрузки количества файлов');
+        const data = await resp.json();
+        renderTable(data, output);
+    } catch(e) {
+        output.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+    }
+
+    async function loadDashboard() {
+    const output = document.getElementById('dashboardOutput');
+    output.innerHTML = 'Загрузка dashboard...';
+
+    try {
+        const resp = await fetch('/api/count');
+        if (!resp.ok) throw new Error('Ошибка загрузки dashboard');
+        const data = await resp.json();
+        renderTable(data.db_dashboards_count || {}, output);
+    } catch(e) {
+        output.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+    }
+
+    function renderTable(data, outputDiv) {
+        let rows = [];
+        if (Array.isArray(data)) {
+            rows = data;
+        } else if (typeof data === 'object') {
+            for (let key in data) {
+                if (typeof data[key] === 'object') {
+                    for (let subKey in data[key]) {
+                        rows.push({name: subKey, value: data[key][subKey]});
+                    }
+                } else {
+                    rows.push({name: key, value: data[key]});
+                }
+            }
+        }
+
+        if (rows.length === 0) {
+            outputDiv.innerHTML = '<p class="error">Нет данных</p>';
+            return;
+        }
+
+        const columns = Object.keys(rows[0]);
+        const columnNames = {
+            name: "Имя",
+            value: "Значение"
+        };
+
+        // --- Считаем итог (total) ---
+        let totalValue = 0;
+        rows.forEach(row => {
+            let val = parseFloat(row.value);
+            if (!isNaN(val)) totalValue += val;
+        });
+
+        // --- Добавляем строку "Итого" ---
+        rows.push({name: "Итого", value: totalValue.toFixed(2)});
+
+        let html = '<table><thead><tr>';
+        columns.forEach(col => {
+            html += `<th>${columnNames[col] || col}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        rows.forEach(row => {
+            html += '<tr>';
+            columns.forEach(col => html += `<td>${row[col]}</td>`);
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+
+        outputDiv.innerHTML = html;
+    }
+
+    async function loadAll() {
+    await loadSizes();
+    await loadFileNums();
+    await loadDashboard();
+    }
+
+    loadAll();
+    setInterval(loadAll, 30000);
+    </script>
+</body>
+</html>
