@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  license_counter:
+    build: .
+    container_name: License_counter
+    ports:
+      - "${PORT}:${PORT}"
+    volumes:
+      - ./License_counter/config.yaml:/License_counter/config.yaml
+      - ./License_counter/templates:/License_counter/templates
+      - ./License_counter/test:/License_counter/test
+      - ./License_counter/end:/License_counter/end
+      - ./License_counter/folders.db:/License_counter/folders.db
+    env_file:
+      - .env
+    command: python license_counter.py
+    restart: unless-stopped
