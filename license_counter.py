@@ -181,39 +181,21 @@ def update_db_loop():
     Используется временная таблица folders_temp для безопасного обновления.
     """
     while True:
+        start_time = time.time()
         try:
             with get_db_connection() as conn:
                 cur = conn.cursor()
                 conn.execute("BEGIN")
-
-                # Временная таблица для атомарного обновления
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS folders_temp (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        path TEXT NOT NULL,
-                        size INTEGER NOT NULL,
-                        n_files INTEGER NOT NULL,
-                        last_updated TEXT NOT NULL
-                    )
-                """)
-                cur.execute("DELETE FROM folders_temp")
+                cur.execute("DELETE FROM folders")
 
                 now = datetime.now().isoformat()
                 for name, path in disk_space.items():
                     size, n_files = get_path_size_filenum(path)
                     cur.execute(
-                        "INSERT INTO folders_temp (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
+                        "INSERT INTO folders (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
                         (name, size, n_files, now)
                     )
                     print(f"{name}: {size} bytes, files: {n_files}, updated: {now}")
-
-                # Заменяем данные в основной таблице
-                cur.execute("DELETE FROM folders")
-                cur.execute("""
-                    INSERT INTO folders (path, size, n_files, last_updated)
-                    SELECT path, size, n_files, last_updated FROM folders_temp
-                """)
-
                 conn.commit()
                 print("Data updated successfully")
 
@@ -221,7 +203,14 @@ def update_db_loop():
             conn.rollback()
             print(f"❌ Update error: {e} — rolling back")
 
-        time.sleep(cycle)
+        elapsed = time.time() - start_time
+        remaining_sleep = cycle - elapsed
+
+        if remaining_sleep > 0:
+            print(f"⏳ Sleeping for {round(remaining_sleep, 2)} seconds, processing took {round(elapsed, 2)} seconds")
+            time.sleep(remaining_sleep)
+        else:
+            print(f"⚠ No sleep, processing took {round(elapsed, 2)} seconds which is >= cycle ({cycle}s)")
 
 
 # ===========================
@@ -235,7 +224,7 @@ if __name__ == "__main__":
     # Загружаем конфигурацию из переменных окружения
     try:
         port = int(os.getenv("PORT", "3000"))
-        host = os.getenv("HOST", "127.0.0.1")
+        host = os.getenv("HOST", "0.0.0.0")
         db_path = os.getenv("DB_PATH", os.path.join(script_dir, "folders.db"))
         cycle = int(os.getenv("CYCLE", "60"))
 
