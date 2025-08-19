@@ -77,6 +77,22 @@
         text-align: center;
         margin-top: 15px;
     }
+
+    .status-ok td {
+        background: #d4edda;
+        color: #155724;
+        font-weight: bold;
+    }
+    .status-error td {
+        background: #f8d7da;
+        color: #721c24;
+        font-weight: bold;
+    }
+    .status-warning td {
+        background: #fff3cd;
+        color: #856404;
+        font-weight: bold;
+    }
 </style>
 </head>
 <body>
@@ -135,25 +151,44 @@
                 const resp = await fetch('/api/count');
                 if (!resp.ok) throw new Error('Ошибка загрузки dashboard');
                 const data = await resp.json();
-                renderTable(data.db_dashboards_count || {}, output);
+
+                // Если есть ключ db_dashboards_count → используем его
+                let dashboards = data.db_dashboards_count || data;
+
+                // Убираем errors (чтобы не рендерить вложенный объект)
+                if (dashboards.errors) {
+                    dashboards = {...dashboards};
+                    delete dashboards.errors;
+                }
+
+                renderTable(dashboards, output);
             } catch(e) {
                 output.innerHTML = `<p class="error">${e.message}</p>`;
             }
         }
 
+
         function renderTable(data, outputDiv) {
             let rows = [];
-            if (Array.isArray(data)) {
-                rows = data;
-            } else if (typeof data === 'object') {
+
+            if (data.folders || data.files_in_folders) {
+                let entries = data.folders || data.files_in_folders;
+                for (let key in entries) {
+                    rows.push({name: key, value: entries[key]});
+                }
+                rows.push({name: "Итого", value: data.total});
+                rows.push({name: "Лимит", value: data.limit});
+                rows.push({name: "Статус", value: data.status});
+            }
+            else if (data.count !== undefined) {
+                rows.push({name: "База", value: data.database});
+                rows.push({name: "Количество", value: data.count});
+                rows.push({name: "Лимит", value: data.limit});
+                rows.push({name: "Статус", value: data.status});
+            }
+            else {
                 for (let key in data) {
-                    if (typeof data[key] === 'object') {
-                        for (let subKey in data[key]) {
-                            rows.push({name: subKey, value: data[key][subKey]});
-                        }
-                    } else {
-                        rows.push({name: key, value: data[key]});
-                    }
+                    rows.push({name: key, value: data[key]});
                 }
             }
 
@@ -162,28 +197,24 @@
                 return;
             }
 
-            const columns = Object.keys(rows[0]);
-            const columnNames = { name: "Имя", value: "Значение" };
-
-            let totalValue = 0;
+            let html = '<table><thead><tr><th>Имя</th><th>Значение</th></tr></thead><tbody>';
             rows.forEach(row => {
-                let val = parseFloat(row.value);
-                if (!isNaN(val)) totalValue += val;
-            });
-            rows.push({name: "Итого", value: totalValue.toFixed(2)});
-
-            let html = '<table><thead><tr>';
-            columns.forEach(col => html += `<th>${columnNames[col] || col}</th>`);
-            html += '</tr></thead><tbody>';
-            rows.forEach(row => {
-                html += '<tr>';
-                columns.forEach(col => html += `<td>${row[col]}</td>`);
-                html += '</tr>';
+                let rowClass = "";
+                if (row.name === "Статус") {
+                    if (typeof row.value === "string") {
+                        let val = row.value.toLowerCase();
+                        if (val.includes("right")) rowClass = "status-ok";
+                        else if (val.includes("exceeding")) rowClass = "status-error";
+                        else if (val.includes("edge")) rowClass = "status-warning";
+                    }
+                }
+                html += `<tr class="${rowClass}"><td>${row.name}</td><td>${row.value}</td></tr>`;
             });
             html += '</tbody></table>';
 
             outputDiv.innerHTML = html;
         }
+
 
         async function loadAll() {
             await loadSizes();
