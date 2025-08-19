@@ -1,0 +1,4 @@
+limit_size: 2    # в гигабайтах
+limit_files: 18
+limit_dashboards: 1
+edge_percent:  95

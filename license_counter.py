@@ -6,6 +6,7 @@
 # =======================
 
 import sys
+import yaml
 import os
 import sqlite3
 import time
@@ -27,6 +28,7 @@ load_dotenv()
 # Работа с SQLite БД
 # ===================
 
+
 @contextmanager
 def get_db_connection():
     """Контекстный менеджер для подключения к SQLite БД"""
@@ -36,10 +38,12 @@ def get_db_connection():
     finally:
         conn.close()
 
+
 def create_table():
     """Создает таблицу folders, если она не существует"""
     with get_db_connection() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS folders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 path TEXT NOT NULL,
@@ -47,8 +51,10 @@ def create_table():
                 n_files INTEGER NOT NULL,
                 last_updated TEXT NOT NULL
             )
-        """)
+        """
+        )
         conn.commit()
+
 
 def get_path_size_filenum(path):
     """
@@ -71,49 +77,166 @@ def get_path_size_filenum(path):
 # API ресурсы (REST)
 # ====================
 
+
 class ALL(Resource):
-    """Возвращает размеры папок, количество файлов и записи из баз данных"""
+    """Возвращает размеры папок, количество файлов и записи из баз данных + лимиты и статус"""
+
     def get(self):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT path, size FROM folders")
-            all_folders = {p: round(s/1024/1024, 2) for p, s in cursor.fetchall()}
+            all_folders = {p: round(s / 1024 / 1024, 2) for p, s in cursor.fetchall()}
             cursor.execute("SELECT path, n_files FROM folders")
             all_files = {p: nf for p, nf in cursor.fetchall()}
 
-        results, errors = {}, {}
+        # --- размеры ---
+        total_size = sum(all_folders.values())
+        limit_mb = limit_size * 1024  # лимит в МБ
+        status_size = None
+        if total_size > limit_mb:
+            status_size = "Exceeding the limit"
+        elif total_size > limit_mb * edge_percent and total_size <= limit_mb:
+            status_size = "On edge"
+        else:
+            status_size = "All right"
+
+        # --- файлы ---
+        total_files = sum(all_files.values())
+        status_files = None
+        if total_files > limit_files:
+            status_files = "Exceeding the limit"
+        elif (
+            total_files > limit_files * edge_percent
+            and total_files <= limit_files
+        ):
+            status_files = "On edge"
+        else:
+            status_files = "All right"
+
+        # --- дашборды ---
         for name, db_info in db.items():
+            errors = 0
             try:
                 engine = create_engine(db_info["uri"])
                 with engine.connect() as conn_db:
-                    count = conn_db.execute(text(f"SELECT COUNT(*) FROM {db_info['table']}")).scalar()
-                    results[name] = count
+                    count = conn_db.execute(
+                        text(f"SELECT COUNT(*) FROM {db_info['table']}")
+                    ).scalar()
             except Exception as e:
+                errors = {}
                 errors[name] = str(e)
+                status_dashboards = None
+            if count > limit_dashboards:
+                status_dashboards = "Exceeding the limit"
+            elif count > limit_dashboards * edge_percent and count <= limit_dashboards:
+                status_dashboards = "On edge"
+            else:
+                status_dashboards = "All right"
 
         return {
-            "size": all_folders,
-            "n_files": all_files,
-            "db_dashboards_count": results,
-            "errors": errors
+            "size": {
+                "folders": all_folders,
+                "total": total_size,
+                "limit": limit_mb,
+                "status": status_size,
+            },
+            "n_files": {
+                "folders": all_files,
+                "total": total_files,
+                "limit": limit_files,
+                "status": status_files,
+            },
+            "db_dashboards_count": {
+                "databases": count,
+                "limit": limit_dashboards,
+                "status": status_dashboards,
+                "errors": errors,
+            },
+            "errors": errors,
         }
 
-class AllDashboards(Resource):
-    """Возвращает количество записей в таблицах всех указанных баз"""
+
+class AllSizes(Resource):
+    """Возвращает размеры всех отслеживаемых папок (в МБ) + лимит и статус"""
+
     def get(self):
-        results, errors = {}, {}
-        for name, db_info in db.items():
-            try:
-                engine = create_engine(db_info["uri"])
-                with engine.connect() as conn_db:
-                    count = conn_db.execute(text(f"SELECT COUNT(*) FROM {db_info['table']}")).scalar()
-                    results[name] = count
-            except Exception as e:
-                errors[name] = str(e)
-        return {"db_dashboards_count": results, "errors": errors}
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, size FROM folders")
+            data = {p: round(s / 1024 / 1024, 2) for p, s in cursor.fetchall()}
+
+        total = sum(data.values())
+        limit_mb = limit_size * 1024  # лимит хранится в ГБ → переводим в МБ
+        status = None
+        if total > limit_mb:
+            status = "Exceeding the limit"
+        elif total > limit_mb * edge_percent and total <= limit_mb:
+            status = "On edge"
+        else:
+            status = "All right"
+
+        return {"folders": data, "total": total, "limit": limit_mb, "status": status}
+
+
+class AllFilnums(Resource):
+    """Возвращает количество файлов во всех папках + лимит и статус"""
+
+    def get(self):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, n_files FROM folders")
+            data = {p: nf for p, nf in cursor.fetchall()}
+
+        total = sum(data.values())
+        status = None
+        if total > limit_files:
+            status = "Exceeding the limit"
+        elif total > limit_files * edge_percent and total <= limit_files:
+            status = "On edge"
+        else:
+            status = "All right"
+
+        return {
+            "files_in_folders": data,
+            "total": total,
+            "limit": limit_files,
+            "status": status,
+        }
+
+
+class AllDashboards(Resource):
+    """Возвращает количество записей в таблице базы + лимит и статус"""
+
+    def get(self):
+        name, db_info = next(iter(db.items()))  # берём единственную базу
+        try:
+            engine = create_engine(db_info["uri"])
+            with engine.connect() as conn_db:
+                count = conn_db.execute(
+                    text(f"SELECT COUNT(*) FROM {db_info['table']}")
+                ).scalar()
+        except Exception as e:
+            return {"error": str(e)}, 500
+
+        status = None
+        if count > limit_dashboards:
+            status = "Exceeding the limit"
+        elif count > limit_dashboards * edge_percent and count <= limit_dashboards:
+            status = "On edge"
+        else:
+            status = "All right"
+
+        return {
+            "database": name,
+            "count": count,
+            "limit": limit_dashboards,
+            "status": status,
+        }
+
 
 class Dashboard(Resource):
     """Возвращает количество записей в таблице указанной базы"""
+
     def get(self, str):
         try:
             if str not in db:
@@ -121,43 +244,37 @@ class Dashboard(Resource):
             db_info = db[str]
             engine = create_engine(db_info["uri"])
             with engine.connect() as conn_db:
-                count = conn_db.execute(text(f"SELECT COUNT(*) FROM {db_info['table']}")).scalar()
+                count = conn_db.execute(
+                    text(f"SELECT COUNT(*) FROM {db_info['table']}")
+                ).scalar()
                 return {str: count}
         except Exception as e:
             return {"error": str(e)}, 500
 
-class AllSizes(Resource):
-    """Возвращает размеры всех отслеживаемых папок (в МБ)"""
-    def get(self):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT path, size FROM folders")
-            return {"folders": {p: round(s/1024/1024, 2) for p, s in cursor.fetchall()}}
 
 class SizeByName(Resource):
     """Возвращает размер конкретной папки или общий объем ('total')"""
+
     def get(self, str):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             if str == "total":
                 cursor.execute("SELECT SUM(size) FROM folders")
                 total = cursor.fetchone()[0] or 0
-                return {"total": round(total/1024/1024, 2)}
+                return {"total": round(total / 1024 / 1024, 2)}
             else:
                 cursor.execute("SELECT size FROM folders WHERE path=?", (str,))
                 row = cursor.fetchone()
-                return {str: round(row[0]/1024/1024, 2)} if row else ({"error": "Папка не найдена"}, 404)
+                return (
+                    {str: round(row[0] / 1024 / 1024, 2)}
+                    if row
+                    else ({"error": "Папка не найдена"}, 404)
+                )
 
-class AllFilnums(Resource):
-    """Возвращает количество файлов во всех папках"""
-    def get(self):
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT path, n_files FROM folders")
-            return {"files_in_folders": {p: nf for p, nf in cursor.fetchall()}}
 
 class FilenumByName(Resource):
     """Возвращает количество файлов в конкретной папке или общее ('total')"""
+
     def get(self, str):
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -174,6 +291,7 @@ class FilenumByName(Resource):
 # ==========================================
 # Фоновое обновление БД через временную таблицу
 # ==========================================
+
 
 def update_db_loop():
     """
@@ -193,7 +311,7 @@ def update_db_loop():
                     size, n_files = get_path_size_filenum(path)
                     cur.execute(
                         "INSERT INTO folders (path, size, n_files, last_updated) VALUES (?, ?, ?, ?)",
-                        (name, size, n_files, now)
+                        (name, size, n_files, now),
                     )
                     print(f"{name}: {size} bytes, files: {n_files}, updated: {now}")
                 conn.commit()
@@ -201,16 +319,20 @@ def update_db_loop():
 
         except Exception as e:
             conn.rollback()
-            print(f"❌ Update error: {e} — rolling back")
+            print(f"❌ Update error: {e} — rolling back", file=sys.stderr)
 
         elapsed = time.time() - start_time
         remaining_sleep = cycle - elapsed
 
         if remaining_sleep > 0:
-            print(f"⏳ Sleeping for {round(remaining_sleep, 2)} seconds, processing took {round(elapsed, 2)} seconds")
+            print(
+                f"⏳ Sleeping for {round(remaining_sleep, 2)} seconds, processing took {round(elapsed, 2)} seconds"
+            )
             time.sleep(remaining_sleep)
         else:
-            print(f"⚠ No sleep, processing took {round(elapsed, 2)} seconds which is >= cycle ({cycle}s)")
+            print(
+                f"⚠ No sleep, processing took {round(elapsed, 2)} seconds which is >= cycle ({cycle}s)"
+            )
 
 
 # ===========================
@@ -233,19 +355,28 @@ if __name__ == "__main__":
 
         db_raw = os.getenv("DB", "")
         db = json.loads(db_raw)
+        limits = os.path.join(script_dir, "license_count.yaml")
+        try:
+            with open(limits, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+                limit_size = config["limit_size"]  # в ГБ
+                limit_files = config["limit_files"]
+                limit_dashboards = config["limit_dashboards"]
+                edge_percent = int(config["edge_percent"])/100
+        except Exception:
+            print("Лимиты лицензии не найдены", file=sys.stderr)
 
         # Создание таблицы и запуск фонового обновления
         create_table()
         threading.Thread(target=update_db_loop, daemon=True).start()
 
     except Exception as e:
-        print(f"Config loading error: {e}")
-        sys.exit(1)
+        print(f"Config loading error: {e}", file=sys.stderr)
 
     # Инициализация Flask и REST API
     app = Flask(__name__)
     api = Api()
-    
+
     # Регистрация маршрутов
     api.add_resource(AllSizes, "/api/size")
     api.add_resource(SizeByName, "/api/size/<str>")
