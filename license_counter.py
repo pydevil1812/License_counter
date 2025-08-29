@@ -68,8 +68,10 @@ def get_path_size_filenum(path):
     size, n_files = 0, 0
     for f in path_obj.rglob("*"):
         if f.is_file():
-            size += f.stat().st_size
-            n_files += 1
+            ext = f.suffix.lower().lstrip(".")
+            if ext in file_extensions:
+                size += f.stat().st_size
+                n_files += 1
     return size, n_files
 
 
@@ -349,10 +351,9 @@ if __name__ == "__main__":
         host = os.getenv("HOST", "0.0.0.0")
         db_path = os.getenv("DB_PATH", os.path.join(script_dir, "folders.db"))
         cycle = int(os.getenv("CYCLE", "60"))
-
+        file_extensions = os.getenv("FILE_EXTENSIONS", "").split(",")
         disk_space_raw = os.getenv("DISK_SPACE", "")
         disk_space = json.loads(disk_space_raw)
-
         db_raw = os.getenv("DB", "")
         db = json.loads(db_raw)
         limits = os.path.join(script_dir, "license_count.yaml")
